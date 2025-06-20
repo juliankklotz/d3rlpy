@@ -33,6 +33,7 @@ if __name__ == "__main__":
             "Operating System :: MacOS :: MacOS X",
         ],
         install_requires=[
+            "mujoco<=2.3.3",
             "torch>=2.5.0",
             "tqdm>=4.66.3",
             "h5py",
