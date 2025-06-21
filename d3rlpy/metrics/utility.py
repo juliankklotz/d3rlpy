@@ -75,7 +75,7 @@ def evaluate_transformer_with_environment(
     algo: StatefulTransformerAlgoProtocol,
     env: GymEnv,
     n_trials: int = 10,
-) -> float:
+) -> dict:
     """Returns average environment score.
 
     .. code-block:: python
@@ -117,4 +117,12 @@ def evaluate_transformer_with_environment(
             if done or truncated:
                 break
         episode_rewards.append(episode_reward)
-    return float(np.mean(episode_rewards))
+    output = {
+        "episode_mean_reward": float(np.mean(episode_rewards)),
+        "episode_median_reward": float(np.median(episode_rewards)),
+        "episode_std_reward": float(np.std(episode_rewards)),
+        "episode_min_reward": float(np.min(episode_rewards)),
+        "episode_max_reward": float(np.max(episode_rewards)),
+        "episode_count": n_trials,
+    }
+    return output
