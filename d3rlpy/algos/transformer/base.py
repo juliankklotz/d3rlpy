@@ -387,6 +387,7 @@ class TransformerAlgoBase(
         eval_action_sampler: Optional[TransformerActionSampler] = None,
         save_interval: int = 1,
         callback: Optional[Callable[[Self, int, int], None]] = None,
+        n_trials: Optional[int] = None,
     ) -> None:
         """Trains with given dataset.
 
@@ -496,6 +497,7 @@ class TransformerAlgoBase(
                         action_sampler=eval_action_sampler,
                     ),
                     env=eval_env,
+                    n_trials=n_trials,
                 )
                 logger.add_metric("environment", eval_score)
 
