@@ -450,8 +450,8 @@ class TransformerAlgoBase(
         # training loop
         n_epochs = n_steps // n_steps_per_epoch
         total_step = 0
-        keep_models = deque(maxlen=5)
-        best_epoch = 0
+        keep_models = []
+        best_epoch = -100
         best_score = -np.inf
 
         for epoch in range(1, n_epochs + 1):
@@ -496,7 +496,7 @@ class TransformerAlgoBase(
                     callback(self, epoch, total_step)
 
             if eval_env:
-                if epoch % eval_gaps == 0: # this is to avoid evaluating every epoch
+                if epoch % eval_gaps == 0 or epoch == 1: # this is to avoid evaluating every epoch
                     assert eval_target_return is not None
                     eval_dict = evaluate_transformer_with_environment(
                         algo=self.as_stateful_wrapper(
