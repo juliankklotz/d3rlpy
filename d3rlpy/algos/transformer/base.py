@@ -501,10 +501,7 @@ class TransformerAlgoBase(
                         env=eval_env,
                         n_trials=n_trials,
                     )
-                    #logger.add_metric("environment", eval_score)
-                    logger.add_metric("we shouldnt be here if",epoch % eval_gaps == 0)
-                    logger.add_metric("epoch", epoch)
-                    logger.add_metric("eval_gaps", eval_gaps)
+                    logger.add_metric("environment", eval_score)
 
             # save metrics
             logger.commit(epoch, total_step)
