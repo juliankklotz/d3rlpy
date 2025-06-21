@@ -9,7 +9,8 @@ from typing import (
     TypeVar,
     Union,
 )
-
+import os
+import sys
 import numpy as np
 import torch
 from tqdm.auto import tqdm
@@ -449,6 +450,10 @@ class TransformerAlgoBase(
         # training loop
         n_epochs = n_steps // n_steps_per_epoch
         total_step = 0
+        keep_models = deque(maxlen=5)
+        best_epoch = 0
+        best_score = -np.inf
+
         for epoch in range(1, n_epochs + 1):
             # dict to add incremental mean losses to epoch
             epoch_loss = defaultdict(list)
@@ -503,13 +508,49 @@ class TransformerAlgoBase(
                     )
                     for name, val in eval_dict.items():
                         logger.add_metric(f"eval_{name}", val)
-
+                        eval_score = eval_dict["episode_mean_reward"]
+                        if eval_score > best_score:
+                            best_score = eval_score
+                            LOG.info(
+                                "New best score",
+                                epoch=epoch,
+                                score=best_score,
+                            )
+                            best_epoch = epoch
+                        else:
+                            patience = epoch - best_epoch
+                            if patience > 10:
+                                sys.exit(
+                                    f"Early stopping at epoch {epoch} due to no improvement in the last 10 epochs."
+                                )
+                        
+                        for kept_model in keep_models:
+                            if kept_model not in range(
+                                best_epoch - 2, best_epoch + 3
+                            ):
+                                try:
+                                    LOG.info(
+                                        f"Removing old model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3'",
+                                        epoch=kept_model,
+                                    )
+                                    
+                                    os.remove(f"d3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3")
+                                except FileNotFoundError:
+                                    LOG.warning(
+                                        f"Model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3' not found.",
+                                        epoch=kept_model,
+                                    )
+                                keep_models.remove(kept_model)
+            
+            if epoch in range(best_epoch - 2, best_epoch + 3):
+                keep_models.append(epoch)
+                logger.save_model(f"epoch_{epoch}", self)
             # save metrics
             logger.commit(epoch, total_step)
 
-            # save model parameters
-            if epoch % save_interval == 0:
-                logger.save_model(total_step, self)
+            # # save model parameters
+            # if epoch % save_interval == 0:
+            #     logger.save_model(f"epoch_{epoch}", self)
 
         logger.close()
 
