@@ -453,6 +453,7 @@ class TransformerAlgoBase(
         keep_models = []
         best_epoch = -100
         best_score = -np.inf
+        exit = False
 
         for epoch in range(1, n_epochs + 1):
             # dict to add incremental mean losses to epoch
@@ -508,43 +509,47 @@ class TransformerAlgoBase(
                     )
                     for name, val in eval_dict.items():
                         logger.add_metric(f"eval_{name}", val)
-                        eval_score = eval_dict["episode_mean_reward"]
-                        if eval_score > best_score:
-                            best_score = eval_score
-                            LOG.info(
-                                "New best score",
-                                epoch=epoch,
-                                score=best_score,
-                            )
-                            best_epoch = epoch
-                        else:
-                            patience = epoch - best_epoch
-                            if patience > 10:
-                                sys.exit(
-                                    f"Early stopping at epoch {epoch} due to no improvement in the last 10 epochs."
+
+                    eval_score = eval_dict["episode_mean_reward"]
+
+                    if eval_score > best_score:
+                        best_score = eval_score
+                        LOG.info(
+                            "New best score",
+                            epoch=epoch,
+                            score=best_score,
+                        )
+                        best_epoch = epoch
+                    else:
+                        patience = epoch - best_epoch
+                        if patience > 10:
+                            exit = True
+                    
+                    for kept_model in keep_models:
+                        if kept_model not in range(
+                            best_epoch - 2, best_epoch + 3
+                        ):
+                            try:
+                                LOG.info(
+                                    f"Removing old model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3'",
+                                    epoch=kept_model,
                                 )
-                        
-                        for kept_model in keep_models:
-                            if kept_model not in range(
-                                best_epoch - 2, best_epoch + 3
-                            ):
-                                try:
-                                    LOG.info(
-                                        f"Removing old model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3'",
-                                        epoch=kept_model,
-                                    )
-                                    
-                                    os.remove(f"d3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3")
-                                except FileNotFoundError:
-                                    LOG.warning(
-                                        f"Model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3' not found.",
-                                        epoch=kept_model,
-                                    )
-                                keep_models.remove(kept_model)
+                                
+                                os.remove(f"d3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3")
+                            except FileNotFoundError:
+                                LOG.warning(
+                                    f"Model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3' not found.",
+                                    epoch=kept_model,
+                                )
+                            keep_models.remove(kept_model)
+                    if exit:
+                        sys.exit(
+                            f"Early stopping at epoch {epoch} due to no improvement in the last 10 epochs."
+                        )
             
-            if epoch in range(best_epoch - 2, best_epoch + 3):
-                keep_models.append(epoch)
-                logger.save_model(f"epoch_{epoch}", self)
+            # if epoch in range(best_epoch - 2, best_epoch + 3):
+            keep_models.append(epoch)
+            logger.save_model(f"epoch_{epoch}", self)
             # save metrics
             logger.commit(epoch, total_step)
 
