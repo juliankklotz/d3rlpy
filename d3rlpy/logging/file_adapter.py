@@ -140,3 +140,16 @@ class FileAdapterFactory(LoggerAdapterFactory):
     ) -> FileAdapter:
         logdir = os.path.join(self._root_dir, experiment_name)
         return FileAdapter(algo, logdir)
+
+
+
+class LightweightFileAdapter(FileAdapter):
+    def watch_model(self, epoch: int, step: int) -> None:
+        pass  # disable all *_grad.csv logging
+
+class LightweightFileAdapterFactory(FileAdapterFactory):
+    def create(
+    self, algo: AlgProtocol, experiment_name: str, n_steps_per_epoch: int
+    ) -> FileAdapter:
+        logdir = os.path.join(self._root_dir, experiment_name)
+        return LightweightFileAdapter(algo, logdir)
