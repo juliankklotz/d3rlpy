@@ -523,9 +523,10 @@ class TransformerAlgoBase(
                     else:
                         patience = epoch - best_epoch
                         if patience > 10:
+                            logger.commit(epoch, total_step)
                             exit = True
                     
-                    for kept_model in keep_models:
+                    for kept_model in keep_models[:]:
                         if kept_model not in range(
                             best_epoch - 2, best_epoch + 3
                         ):
