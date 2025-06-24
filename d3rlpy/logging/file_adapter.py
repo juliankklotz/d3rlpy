@@ -13,7 +13,7 @@ from .logger import (
     SaveProtocol,
 )
 
-__all__ = ["FileAdapter", "FileAdapterFactory"]
+__all__ = ["FileAdapter", "FileAdapterFactory","UnifiedFileAdapterFactory", "UnifiedFileAdapter", "LightweightFileAdapterFactory", "LightweightFileAdapter"]
 
 
 # default json encoder for numpy objects
@@ -153,3 +153,48 @@ class LightweightFileAdapterFactory(FileAdapterFactory):
     ) -> FileAdapter:
         logdir = os.path.join(self._root_dir, experiment_name)
         return LightweightFileAdapter(algo, logdir)
+
+
+class UnifiedFileAdapter(FileAdapter):
+    def __init__(self, algo: AlgProtocol, logdir: str):
+        super().__init__(algo, logdir)
+        self._metric_cache = {}  # maps (epoch, step) -> {metric_name: value}
+        self._metric_keys = set()  # collect all metric names
+        self._metrics_file = os.path.join(logdir, "metrics.csv")
+
+        # Initialize header
+        if not os.path.exists(self._metrics_file):
+            with open(self._metrics_file, "w") as f:
+                print("epoch,step", file=f)
+
+    def write_metric(self, epoch: int, step: int, name: str, value: float) -> None:
+        key = (epoch, step)
+        if key not in self._metric_cache:
+            self._metric_cache[key] = {"epoch": epoch, "step": step}
+        self._metric_cache[key][name] = value
+        self._metric_keys.add(name)
+
+    def after_write_metric(self, epoch: int, step: int) -> None:
+        # Write one row to metrics.csv after all metrics are ready
+        key = (epoch, step)
+        metrics = self._metric_cache.pop(key)
+        all_keys = ["epoch", "step"] + sorted(self._metric_keys)
+
+        # If header is only epoch,step — update it now
+        if os.path.getsize(self._metrics_file) < 20:  # only header
+            with open(self._metrics_file, "w") as f:
+                print(",".join(all_keys), file=f)
+
+        row = [str(metrics.get(k, "")) for k in all_keys]
+        with open(self._metrics_file, "a") as f:
+            print(",".join(row), file=f)
+    
+    def watch_model(self, epoch: int, step: int) -> None:
+        pass  # disable all *_grad.csv logging
+
+class UnifiedFileAdapterFactory(FileAdapterFactory):
+    def create(
+    self, algo: AlgProtocol, experiment_name: str, n_steps_per_epoch: int
+    ) -> FileAdapter:
+        logdir = os.path.join(self._root_dir, experiment_name)
+        return UnifiedFileAdapter(algo, logdir)

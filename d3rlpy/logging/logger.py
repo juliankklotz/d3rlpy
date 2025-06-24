@@ -6,6 +6,7 @@ from typing import Any, Iterator, Optional, Protocol
 
 import structlog
 from torch import nn
+import os
 
 from ..types import Float32NDArray
 
