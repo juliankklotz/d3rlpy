@@ -523,7 +523,6 @@ class TransformerAlgoBase(
                     else:
                         patience = epoch - best_epoch
                         if patience > 10:
-                            logger.commit(epoch, total_step)
                             exit = True
                     
                     for kept_model in keep_models[:]:
@@ -543,20 +542,17 @@ class TransformerAlgoBase(
                                     epoch=kept_model,
                                 )
                             keep_models.remove(kept_model)
-                    if exit:
-                        sys.exit(
-                            f"Early stopping at epoch {epoch} due to no improvement in the last 10 epochs."
-                        )
-            
-            # if epoch in range(best_epoch - 2, best_epoch + 3):
-            keep_models.append(epoch)
-            logger.save_model(f"epoch_{epoch}", self)
+
+
             # save metrics
             logger.commit(epoch, total_step)
 
-            # # save model parameters
-            # if epoch % save_interval == 0:
-            #     logger.save_model(f"epoch_{epoch}", self)
+            if exit:
+                print(f"Early stopping at epoch {epoch} due to no improvement in the last 10 epochs.")
+                break
+            
+            keep_models.append(epoch)
+            logger.save_model(f"epoch_{epoch}", self)
 
         logger.close()
 
