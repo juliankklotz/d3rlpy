@@ -497,7 +497,7 @@ class TransformerAlgoBase(
                     callback(self, epoch, total_step)
 
             if eval_env:
-                if epoch % eval_gaps == 0 or epoch == 1: # this is to avoid evaluating every epoch
+                if epoch % eval_gaps == 0: # this is to avoid evaluating every epoch
                     assert eval_target_return is not None
                     eval_dict = evaluate_transformer_with_environment(
                         algo=self.as_stateful_wrapper(
@@ -522,7 +522,7 @@ class TransformerAlgoBase(
                         best_epoch = epoch
                     else:
                         patience = epoch - best_epoch
-                        if patience > 10:
+                        if patience > 20:
                             exit = True
                     
                     for kept_model in keep_models[:]:
