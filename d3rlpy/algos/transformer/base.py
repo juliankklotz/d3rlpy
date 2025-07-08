@@ -390,6 +390,7 @@ class TransformerAlgoBase(
         callback: Optional[Callable[[Self, int, int], None]] = None,
         n_trials: int = 10,
         eval_gaps: int = 10,
+        patience: int = 10,
     ) -> None:
         """Trains with given dataset.
 
@@ -520,28 +521,35 @@ class TransformerAlgoBase(
                             score=best_score,
                         )
                         best_epoch = epoch
+                        if eval_gaps == 1:
+                            LOG.info(
+                                f"Saving model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{epoch}.d3'",
+                                epoch=epoch,
+                            )
+                            logger.save_model(f"epoch_{epoch}", self)
                     else:
-                        patience = epoch - best_epoch
-                        if patience > 20:
+                        patience_count = epoch - best_epoch
+                        if patience_count > patience:
                             exit = True
                     
-                    for kept_model in keep_models[:]:
-                        if kept_model not in range(
-                            best_epoch - 2, best_epoch + 3
-                        ):
-                            try:
-                                LOG.info(
-                                    f"Removing old model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3'",
-                                    epoch=kept_model,
-                                )
-                                
-                                os.remove(f"d3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3")
-                            except FileNotFoundError:
-                                LOG.warning(
-                                    f"Model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3' not found.",
-                                    epoch=kept_model,
-                                )
-                            keep_models.remove(kept_model)
+                    if eval_gaps != 1:
+                        for kept_model in keep_models[:]:
+                            if kept_model not in range(
+                                best_epoch - 2, best_epoch + 3
+                            ):
+                                try:
+                                    LOG.info(
+                                        f"Removing old model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3'",
+                                        epoch=kept_model,
+                                    )
+                                    
+                                    os.remove(f"d3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3")
+                                except FileNotFoundError:
+                                    LOG.warning(
+                                        f"Model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3' not found.",
+                                        epoch=kept_model,
+                                    )
+                                keep_models.remove(kept_model)
 
 
             # save metrics
@@ -551,8 +559,9 @@ class TransformerAlgoBase(
                 print(f"Early stopping at epoch {epoch} due to no improvement in the last 10 epochs.")
                 break
             
-            keep_models.append(epoch)
-            logger.save_model(f"epoch_{epoch}", self)
+            if eval_gaps != 1:
+                keep_models.append(epoch)
+                logger.save_model(f"epoch_{epoch}", self)
 
         logger.close()
 
