@@ -497,7 +497,7 @@ class TransformerAlgoBase(
                     callback(self, epoch, total_step)
 
             if eval_env:
-                if epoch % eval_gaps == 0: # this is to avoid evaluating every epoch
+                if epoch % eval_gaps == 0 or epoch == 1: # this is to avoid evaluating every epoch
                     assert eval_target_return is not None
                     eval_dict = evaluate_transformer_with_environment(
                         algo=self.as_stateful_wrapper(
@@ -505,7 +505,7 @@ class TransformerAlgoBase(
                             action_sampler=eval_action_sampler,
                         ),
                         env=eval_env,
-                        n_trials=n_trials,
+                        n_trials=n_trials if epoch != 1 else 1,
                     )
                     for name, val in eval_dict.items():
                         logger.add_metric(f"eval_{name}", val)
