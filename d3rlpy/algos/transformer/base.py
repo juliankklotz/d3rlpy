@@ -527,6 +527,7 @@ class TransformerAlgoBase(
                                 epoch=epoch,
                             )
                             logger.save_model(f"epoch_{epoch}", self)
+                            keep_models.append(epoch)
                     else:
                         patience_count = epoch - best_epoch
                         if patience_count > patience:
