@@ -20,26 +20,25 @@ datasets=(
   "hopper-medium-replay-v2"
   "walker2d-medium-v2"
   "walker2d-medium-replay-v2"
-  "walker2d-medium-expert-v2"
 )
 
 dataset=${datasets[$SLURM_ARRAY_TASK_ID]}
 
 spackup cuda-zen
-module load miniconda3/24.1.2
+# module load miniconda3/24.1.2
 
-# Properly initialize Conda
-source /opt/sw/conda/miniconda3/etc/profile.d/conda.sh
-eval "$(conda shell.bash hook)"
-conda deactivate
-conda activate d3rlpy_dev_requirements_py310
+# # Properly initialize Conda
+# source /opt/sw/conda/miniconda3/etc/profile.d/conda.sh
+# eval "$(conda shell.bash hook)"
+# conda deactivate
+# conda activate d3rlpy_dev_requirements_py310
 
-echo "Python executable: $(which python)"
-echo "Conda environment: $(conda env list | grep '*' | awk '{print $1}')"
+# echo "Python executable: $(which python)"
+# echo "Conda environment: $(conda env list | grep '*' | awk '{print $1}')"
 # Debug print
 echo "Running Decision Transformer on dataset: $dataset"
 
-python /gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy/experiments/exp01_original_dt/run_decision_transformer.py \
+/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_requirements_py310/bin/python /gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy/experiments/exp01_original_dt/run_decision_transformer.py \
   --dataset $dataset \
   --n_steps 100000 \
   --n_epochs 1000 \
