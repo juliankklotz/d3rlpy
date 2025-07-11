@@ -41,7 +41,7 @@ from .inputs import TorchTransformerInput, TransformerInput
 
 from ..qlearning import QLearningAlgoImplBase
 from ...torch_utility import TorchMiniBatch
-
+from decision_transformer import DecisionTransformer
 __all__ = [
     "TransformerAlgoImplBase",
     "StatefulTransformerWrapper",
@@ -611,9 +611,15 @@ class TransformerAlgoBase(
         return StatefulTransformerWrapper(self, target_return, action_sampler)
 
 class TransformerFixedRTGQLearningAlgoImpl(QLearningAlgoImplBase):
-    def __init__(self, dt_model: TransformerAlgoImplBase, target_return: float):
-        super().__init__(dt_model.observation_shape, dt_model.action_size, dt_model.modules, dt_model.device)
-        self._algo = dt_model
+    def __init__(self, dt_model: DecisionTransformer, target_return: float):
+        impl = dt_model._impl  # ✅ use the actual model implementation
+        super().__init__(
+            observation_shape=impl.observation_shape,
+            action_size=impl.action_size,
+            modules=impl.modules,
+            device=impl.device,
+        )
+        self._algo = impl
         self._target_return = target_return
 
     def inner_predict_best_action(self, x: torch.Tensor) -> torch.Tensor:
