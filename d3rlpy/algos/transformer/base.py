@@ -40,6 +40,7 @@ from .action_samplers import (
 from .inputs import TorchTransformerInput, TransformerInput
 
 from ..qlearning import QLearningAlgoImplBase
+from ...torch_utility import TorchMiniBatch
 
 __all__ = [
     "TransformerAlgoImplBase",
