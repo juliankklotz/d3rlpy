@@ -19,7 +19,6 @@ from .torch.decision_transformer_impl import (
 
 from ..qlearning import QLearningAlgoImplBase
 from ...torch_utility import TorchMiniBatch
-from decision_transformer import DecisionTransformer
 from .inputs import TorchTransformerInput, TransformerInput
 import numpy as np
 import torch
