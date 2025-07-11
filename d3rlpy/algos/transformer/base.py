@@ -39,6 +39,8 @@ from .action_samplers import (
 )
 from .inputs import TorchTransformerInput, TransformerInput
 
+from ..qlearning import QLearningAlgoImplBase
+
 __all__ = [
     "TransformerAlgoImplBase",
     "StatefulTransformerWrapper",
@@ -606,3 +608,21 @@ class TransformerAlgoBase(
             else:
                 action_sampler = SoftmaxTransformerActionSampler()
         return StatefulTransformerWrapper(self, target_return, action_sampler)
+
+class TransformerFixedRTGQLearningAlgoImpl(QLearningAlgoImplBase):
+    def __init__(self, dt_model: TransformerAlgoImplBase, target_return: float):
+        super().__init__(dt_model.observation_shape, dt_model.action_size, dt_model.modules, dt_model.device)
+        self._algo = dt_model
+        self._target_return = target_return
+
+    def inner_predict_best_action(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
+        return self._algo.predict(
+            TransformerInput(
+                observations=x,
+                actions=np.zeros((batch_size, 1), dtype=np.float32),
+                rewards=np.zeros((batch_size, 1), dtype=np.float32),
+                returns_to_go=np.full((batch_size, 1), self._target_return, dtype=np.float32),
+                timesteps=np.zeros((batch_size, 1), dtype=np.int64),
+            )
+        )
