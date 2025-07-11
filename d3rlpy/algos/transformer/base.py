@@ -626,3 +626,13 @@ class TransformerFixedRTGQLearningAlgoImpl(QLearningAlgoImplBase):
                 timesteps=np.zeros((batch_size, 1), dtype=np.int64),
             )
         )
+
+    def inner_sample_action(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Sampling is not supported in this wrapper.")
+
+    def inner_predict_value(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Value prediction is not supported in this wrapper.")
+
+    def inner_update(self, batch: TorchMiniBatch, grad_step: int) -> dict[str, float]:
+        raise NotImplementedError("Updates are not supported in this wrapper.")
+
