@@ -38,10 +38,6 @@ from .action_samplers import (
     TransformerActionSampler,
 )
 from .inputs import TorchTransformerInput, TransformerInput
-
-from ..qlearning import QLearningAlgoImplBase
-from ...torch_utility import TorchMiniBatch
-from decision_transformer import DecisionTransformer
 __all__ = [
     "TransformerAlgoImplBase",
     "StatefulTransformerWrapper",
@@ -610,36 +606,4 @@ class TransformerAlgoBase(
                 action_sampler = SoftmaxTransformerActionSampler()
         return StatefulTransformerWrapper(self, target_return, action_sampler)
 
-class TransformerFixedRTGQLearningAlgoImpl(QLearningAlgoImplBase):
-    def __init__(self, dt_model: DecisionTransformer, target_return: float):
-        impl = dt_model._impl  # ✅ use the actual model implementation
-        super().__init__(
-            observation_shape=impl.observation_shape,
-            action_size=impl.action_size,
-            modules=impl.modules,
-            device=impl.device,
-        )
-        self._algo = impl
-        self._target_return = target_return
-
-    def inner_predict_best_action(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size = x.shape[0]
-        return self._algo.predict(
-            TransformerInput(
-                observations=x,
-                actions=np.zeros((batch_size, 1), dtype=np.float32),
-                rewards=np.zeros((batch_size, 1), dtype=np.float32),
-                returns_to_go=np.full((batch_size, 1), self._target_return, dtype=np.float32),
-                timesteps=np.zeros((batch_size, 1), dtype=np.int64),
-            )
-        )
-
-    def inner_sample_action(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("Sampling is not supported in this wrapper.")
-
-    def inner_predict_value(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("Value prediction is not supported in this wrapper.")
-
-    def inner_update(self, batch: TorchMiniBatch, grad_step: int) -> dict[str, float]:
-        raise NotImplementedError("Updates are not supported in this wrapper.")
 
