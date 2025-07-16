@@ -445,17 +445,18 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
         ctx     = dt_model._config.context_size    # typically 30
 
         def _inner(self_impl, x: TorchObservation) -> torch.Tensor:
-            x_np   = torch_to_numpy(x)
-            batch  = x_np[0].shape[0] if isinstance(x_np, (list, tuple)) else x_np.shape[0]
+            x_np  = torch_to_numpy(x)
+            batch = x_np[0].shape[0] if isinstance(x_np, (list, tuple)) else x_np.shape[0]
+
+            A = wrapper.impl.action_size  # <- number of action features
 
             return wrapper._algo.predict(
                 TransformerInput(
-                    observations  = x_np,                         # (B, …)
-                    actions       = np.zeros((batch, 1), dtype=np.float32),
-                    rewards       = np.zeros((batch, 1), dtype=np.float32),
-                    returns_to_go = np.full((batch, 1),
-                                            wrapper._target_return, dtype=np.float32),
-                    timesteps     = np.zeros(batch, dtype=np.int64),   # <- FIX
+                    observations   = x_np,
+                    actions        = np.zeros((batch, A), dtype=np.float32),    # <- FIX
+                    rewards        = np.zeros((batch, 1), dtype=np.float32),
+                    returns_to_go  = np.full((batch, 1), wrapper._target_return, dtype=np.float32),
+                    timesteps      = np.zeros(batch, dtype=np.int64),
                 )
             )
 
