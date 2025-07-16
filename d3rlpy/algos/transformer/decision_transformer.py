@@ -450,15 +450,20 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
 
             A = wrapper.impl.action_size  # <- number of action features
 
-            return wrapper._algo.predict(
+            action = wrapper._algo.predict(
                 TransformerInput(
                     observations   = x_np,
-                    actions        = np.zeros((batch, A), dtype=np.float32),    # <- FIX
+                    actions        = np.zeros((batch, A), dtype=np.float32),
                     rewards        = np.zeros((batch, 1), dtype=np.float32),
-                    returns_to_go  = np.full((batch, 1), wrapper._target_return, dtype=np.float32),
+                    returns_to_go  = np.full((batch, 1),
+                                            wrapper._target_return, dtype=np.float32),
                     timesteps      = np.zeros(batch, dtype=np.int64),
                 )
             )
+            # --- NEW: ensure we hand a torch.Tensor back to FQE ------------------
+            if isinstance(action, np.ndarray):
+                action = torch.from_numpy(action).to(wrapper.impl.device)
+            return action
 
         def _outer(self_impl, x: TorchObservation) -> torch.Tensor:
             return self_impl.inner_predict_best_action(x)
