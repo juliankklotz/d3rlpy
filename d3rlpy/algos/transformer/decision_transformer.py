@@ -258,14 +258,14 @@ class DiscreteDecisionTransformer(
 
 class DTConstantRTGforFQE(QLearningAlgoImplBase):
     def __init__(self, dt_model: DecisionTransformer, target_return: float):
-        impl = dt_model._impl  # ✅ use the actual model implementation
         super().__init__(
             observation_shape=impl.observation_shape,
             action_size=impl.action_size,
             modules=impl.modules,
             device=impl.device,
         )
-        self._algo = impl
+        #impl = dt_model._impl  # ✅ use the actual model implementation
+        self._algo = dt_model
         self._target_return = target_return
 
     def inner_predict_best_action(self, x: torch.Tensor) -> torch.Tensor:
