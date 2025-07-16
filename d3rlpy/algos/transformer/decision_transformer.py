@@ -332,7 +332,7 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
         # ------------------------------------------------------------------
         wrapper = self  # capture in closure
 
-        def inner_predict_best_action(self_impl, x):
+        def _inner(self_impl, x: TorchObservation) -> torch.Tensor:
             x_np = torch_to_numpy(x)
             if isinstance(x_np, (list, tuple)):
                 batch = x_np[0].shape[0]
@@ -352,11 +352,11 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
             )
 
         # one‑liner that just delegates to inner
-        def _outer(self_impl, x):
+        def _outer(self_impl, x: TorchObservation) -> torch.Tensor:
             return self_impl.inner_predict_best_action(x)
 
         # bind to *this* impl instance
-        self.impl.inner_predict_best_action = MethodType(inner_predict_best_action, self.impl)
+        self.impl.inner_predict_best_action = MethodType(_inner, self.impl)
         self.impl.predict_best_action = MethodType(_outer, self.impl)
 
     #     self._impl = dt_model._impl
@@ -412,6 +412,9 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
 
     def inner_update(self, batch: TorchMiniBatch, grad_step: int) -> dict[str, float]:
         raise NotImplementedError("Updates are not supported in this wrapper.")
+    
+    def inner_predict_best_action(self, x: TorchObservation) -> torch.Tensor:
+        return NotImplementedError("Best action prediction is not supported in this wrapper, done by impl.")
 
 
 register_learnable(DecisionTransformerConfig)
