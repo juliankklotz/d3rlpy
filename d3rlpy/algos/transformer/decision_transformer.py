@@ -259,13 +259,15 @@ class DiscreteDecisionTransformer(
 class DTConstantRTGforFQE(QLearningAlgoImplBase):
     def __init__(self, dt_model: DecisionTransformer, target_return: float):
         self._impl = dt_model._impl
+        self.impl = dt_model.impl
+
         super().__init__(
             observation_shape=self._impl.observation_shape,
             action_size=self._impl.action_size,
             modules=self._impl.modules,
             device=self._impl.device,
         )
-        
+
         self._algo = dt_model
         self._target_return = target_return
 
