@@ -8,7 +8,7 @@ from ...models.builders import (
     create_discrete_decision_transformer,
 )
 from ...optimizers import OptimizerFactory, make_optimizer_field
-from ...types import Shape
+from ...types import Shape,TorchObservation,NDArray, ObservationSequence
 from .base import TransformerAlgoBase, TransformerConfig
 from .torch.decision_transformer_impl import (
     DecisionTransformerImpl,
@@ -22,6 +22,8 @@ from ...torch_utility import TorchMiniBatch
 from .inputs import TorchTransformerInput, TransformerInput
 import numpy as np
 import torch
+from types import MethodType
+from typing import Sequence, Union, overload
 
 __all__ = [
     "DecisionTransformerConfig",
@@ -253,25 +255,14 @@ class DiscreteDecisionTransformer(
 
 
 
+class DecisionTransformerImplforFQE(DecisionTransformerImpl):
+    def __init__(self):
+        pass
 
-
-
-class DTConstantRTGforFQE(QLearningAlgoImplBase):
-    def __init__(self, dt_model: DecisionTransformer, target_return: float):
-        self._impl = dt_model._impl
-        self.impl = dt_model.impl
-
-        super().__init__(
-            observation_shape=self._impl.observation_shape,
-            action_size=self._impl.action_size,
-            modules=self._impl.modules,
-            device=self._impl.device,
-        )
-
-        self._algo = dt_model
-        self._target_return = target_return
-
-    def inner_predict_best_action(self, x: torch.Tensor) -> torch.Tensor:
+    def predict_best_action(self, x: TorchObservation) -> torch.Tensor:
+        return self.inner_predict_best_action(x)
+    
+    def inner_predict_best_action(self, x: TorchObservation) -> torch.Tensor:
         batch_size = x.shape[0]
         return self._algo.predict(
             TransformerInput(
@@ -283,13 +274,134 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
             )
         )
 
-    def inner_sample_action(self, x: torch.Tensor) -> torch.Tensor:
+    def predict(self, x: TorchTransformerInput) -> torch.Tensor:
+        return self.inner_predict(x)
+
+    def sample_action(self, x: TorchObservation) -> torch.Tensor:
         raise NotImplementedError("Sampling is not supported in this wrapper.")
 
-    def inner_predict_value(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    def predict_value(self, x: TorchObservation, a: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError("Value prediction is not supported in this wrapper.")
 
-    def inner_update(self, batch: TorchMiniBatch, grad_step: int) -> dict[str, float]:
+
+
+
+
+
+@overload
+def torch_to_numpy(obs: torch.Tensor) -> NDArray: ...
+@overload
+def torch_to_numpy(obs: Sequence[torch.Tensor]) -> Sequence[NDArray]: ...
+
+def torch_to_numpy(obs: TorchObservation) -> ObservationSequence:
+    """
+    Turn a TorchObservation (tensor *or* list/tuple of tensors)
+    into the matching ObservationSequence (ndarray *or* list/tuple
+    of ndarrays).
+
+    • Leaves the container structure (list vs tuple) unchanged.
+    • Ensures the array lives on CPU and is detached from the graph.
+    """
+    if isinstance(obs, torch.Tensor):
+        return obs.detach().cpu().numpy()
+    elif isinstance(obs, (list, tuple)):
+        convert = torch_to_numpy   # recursive alias
+        return type(obs)(convert(o) for o in obs)
+    else:                                  # defensive
+        raise TypeError(
+            f"Expected torch.Tensor or sequence thereof, got {type(obs)}"
+        )
+
+
+class DTConstantRTGforFQE(QLearningAlgoImplBase):
+    def __init__(self, dt_model: DecisionTransformer, target_return: float):
+        
+        self._algo = dt_model
+        self.impl = dt_model.impl
+        self._target_return = target_return
+
+        super().__init__(  # ✔ let parent wire buffers
+            observation_shape=self.impl.observation_shape,
+            action_size=self.impl.action_size,
+            modules=self.impl.modules,
+            device=self.impl.device,
+        )
+
+        # ------------------------------------------------------------------
+        # Patch *this* impl instance only
+        # ------------------------------------------------------------------
+        wrapper = self  # capture in closure
+
+        def _inner(self_impl, x):
+            x_np = torch_to_numpy(x)
+            if isinstance(x_np, (list, tuple)):
+                batch = x_np[0].shape[0]
+            else:
+                batch = x_np.shape[0]
+
+            return wrapper._algo.predict(
+                TransformerInput(
+                    observations=x_np,
+                    actions=np.zeros((batch, 1), dtype=np.float32),
+                    rewards=np.zeros((batch, 1), dtype=np.float32),
+                    returns_to_go=np.full(
+                        (batch, 1), wrapper._target_return, dtype=np.float32
+                    ),
+                    timesteps=np.zeros((batch, 1), dtype=np.int64),
+                )
+            )
+
+        # one‑liner that just delegates to inner
+        def _outer(self_impl, x):
+            return self_impl.inner_predict_best_action(x)
+
+        # bind to *this* impl instance
+        self.impl.inner_predict_best_action = MethodType(_inner, self.impl)
+        self.impl.predict_best_action = MethodType(_outer, self.impl)
+
+    #     self._impl = dt_model._impl
+    #     self.impl = dt_model.impl
+
+    #     super().__init__(
+    #         observation_shape=self._impl.observation_shape,
+    #         action_size=self._impl.action_size,
+    #         modules=self._impl.modules,
+    #         device=self._impl.device,
+    #     )
+
+    #     self._algo = dt_model
+    #     self._target_return = target_return
+    #     self.impl.predict_best_action = MethodType(
+    #         self._predict_best_action, self.impl
+    #     )
+    #     self.impl.inner_predict_best_action = MethodType(
+    #         self._inner_predict_best_action, self.impl
+    #     )
+
+
+    # def _predict_best_action(self, x: TorchObservation) -> torch.Tensor:
+    #     return self._inner_predict_best_action(x)
+    
+    # def _inner_predict_best_action(self, x: TorchObservation) -> torch.Tensor:
+    #     x_np = torch_to_numpy(x)           # 👈 convert once, here
+    #     batch_size = x_np[0].shape[0] if isinstance(x_np, (list, tuple)) else x_np.shape[0]
+    #     return self._algo.predict(
+    #         TransformerInput(
+    #             observations=x_np,
+    #             actions=np.zeros((batch_size, 1), dtype=np.float32),
+    #             rewards=np.zeros((batch_size, 1), dtype=np.float32),
+    #             returns_to_go=np.full((batch_size, 1), self._target_return, dtype=np.float32),
+    #             timesteps=np.zeros((batch_size, 1), dtype=np.int64),
+    #         )
+    #     )
+
+    def _inner_sample_action(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Sampling is not supported in this wrapper.")
+
+    def _inner_predict_value(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Value prediction is not supported in this wrapper.")
+
+    def _inner_update(self, batch: TorchMiniBatch, grad_step: int) -> dict[str, float]:
         raise NotImplementedError("Updates are not supported in this wrapper.")
 
 
