@@ -332,7 +332,7 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
         # ------------------------------------------------------------------
         wrapper = self  # capture in closure
 
-        def _inner(self_impl, x):
+        def inner_predict_best_action(self_impl, x):
             x_np = torch_to_numpy(x)
             if isinstance(x_np, (list, tuple)):
                 batch = x_np[0].shape[0]
@@ -356,7 +356,7 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
             return self_impl.inner_predict_best_action(x)
 
         # bind to *this* impl instance
-        self.impl.inner_predict_best_action = MethodType(_inner, self.impl)
+        self.impl.inner_predict_best_action = MethodType(inner_predict_best_action, self.impl)
         self.impl.predict_best_action = MethodType(_outer, self.impl)
 
     #     self._impl = dt_model._impl
@@ -402,6 +402,15 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
         raise NotImplementedError("Value prediction is not supported in this wrapper.")
 
     def _inner_update(self, batch: TorchMiniBatch, grad_step: int) -> dict[str, float]:
+        raise NotImplementedError("Updates are not supported in this wrapper.")
+
+    def inner_sample_action(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Sampling is not supported in this wrapper.")
+
+    def inner_predict_value(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Value prediction is not supported in this wrapper.")
+
+    def inner_update(self, batch: TorchMiniBatch, grad_step: int) -> dict[str, float]:
         raise NotImplementedError("Updates are not supported in this wrapper.")
 
 
