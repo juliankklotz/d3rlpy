@@ -444,33 +444,54 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
         wrapper = self
         ctx     = dt_model._config.context_size    # typically 30
 
+        # def _inner(self_impl, x: TorchObservation) -> torch.Tensor:
+        #     x_np  = torch_to_numpy(x)
+        #     batch = x_np[0].shape[0] if isinstance(x_np, (list, tuple)) else x_np.shape[0]
+
+        #     A = wrapper.impl.action_size  # <- number of action features
+
+        #     action = wrapper._algo.predict(
+        #         TransformerInput(
+        #             observations   = x_np,
+        #             actions        = np.zeros((batch, A), dtype=np.float32),
+        #             rewards        = np.zeros((batch, 1), dtype=np.float32),
+        #             returns_to_go  = np.full((batch, 1),
+        #                                     wrapper._target_return, dtype=np.float32),
+        #             timesteps      = np.zeros(batch, dtype=np.int64),
+        #         )
+        #     )
+        #     # --- ensure tensor on the right device ---
+        #     if isinstance(action, np.ndarray):
+        #         action = torch.from_numpy(action).to(wrapper.impl.device)
+        #     else:
+        #         action = action.to(wrapper.impl.device)
+
+        #     # --- NEW: give action a feature dimension if it lacks one --------------
+        #     if action.dim() == 1:                       # (B,)  →  (B, 1)
+        #         action = action.unsqueeze(-1)
+
+        #     return action
+
         def _inner(self_impl, x: TorchObservation) -> torch.Tensor:
             x_np  = torch_to_numpy(x)
             batch = x_np[0].shape[0] if isinstance(x_np, (list, tuple)) else x_np.shape[0]
 
-            A = wrapper.impl.action_size  # <- number of action features
+            A = wrapper.impl.action_size
+            actions = np.empty((batch, A), dtype=np.float32)
 
-            action = wrapper._algo.predict(
-                TransformerInput(
-                    observations   = x_np,
-                    actions        = np.zeros((batch, A), dtype=np.float32),
-                    rewards        = np.zeros((batch, 1), dtype=np.float32),
-                    returns_to_go  = np.full((batch, 1),
-                                            wrapper._target_return, dtype=np.float32),
-                    timesteps      = np.zeros(batch, dtype=np.int64),
+            for i in range(batch):
+                obs_i = [o[i : i + 1] for o in x_np] if isinstance(x_np, (list, tuple)) else x_np[i : i + 1]
+                actions[i] = wrapper._algo.predict(
+                    TransformerInput(
+                        observations   = obs_i,
+                        actions        = np.zeros((1, A), dtype=np.float32),
+                        rewards        = np.zeros((1, 1), dtype=np.float32),
+                        returns_to_go  = np.full((1, 1), wrapper._target_return, dtype=np.float32),
+                        timesteps      = np.zeros(1, dtype=np.int64),
+                    )
                 )
-            )
-            # --- ensure tensor on the right device ---
-            if isinstance(action, np.ndarray):
-                action = torch.from_numpy(action).to(wrapper.impl.device)
-            else:
-                action = action.to(wrapper.impl.device)
 
-            # --- NEW: give action a feature dimension if it lacks one --------------
-            if action.dim() == 1:                       # (B,)  →  (B, 1)
-                action = action.unsqueeze(-1)
-
-            return action
+            return torch.from_numpy(actions).to(wrapper.impl.device)   # (B, A)
 
         def _outer(self_impl, x: TorchObservation) -> torch.Tensor:
             return self_impl.inner_predict_best_action(x)
