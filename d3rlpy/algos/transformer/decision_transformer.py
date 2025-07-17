@@ -460,9 +460,16 @@ class DTConstantRTGforFQE(QLearningAlgoImplBase):
                     timesteps      = np.zeros(batch, dtype=np.int64),
                 )
             )
-            # --- NEW: ensure we hand a torch.Tensor back to FQE ------------------
+            # --- ensure tensor on the right device ---
             if isinstance(action, np.ndarray):
                 action = torch.from_numpy(action).to(wrapper.impl.device)
+            else:
+                action = action.to(wrapper.impl.device)
+
+            # --- NEW: give action a feature dimension if it lacks one --------------
+            if action.dim() == 1:                       # (B,)  →  (B, 1)
+                action = action.unsqueeze(-1)
+
             return action
 
         def _outer(self_impl, x: TorchObservation) -> torch.Tensor:
