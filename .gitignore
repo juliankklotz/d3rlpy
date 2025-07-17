@@ -22,3 +22,8 @@ dist
 /.idea/
 *.egg-info
 /.vscode/
+# ignore slurm output files
+*.out
+*.err
+# ignore d3rlpy logs
+d3rlpy_logs/*
