@@ -43,6 +43,7 @@ __all__ = [
     "StatefulTransformerWrapper",
     "TransformerConfig",
     "TransformerAlgoBase",
+    "DiscountedRTGWrapper",
 ]
 
 
@@ -204,6 +205,48 @@ class StatefulTransformerWrapper(Generic[TTransformerImpl, TTransformerConfig]):
             pad_action = 0
         return pad_action
 
+class DiscountedRTGWrapper(StatefulTransformerWrapper[TTransformerImpl, TTransformerConfig]):
+    r"""
+    A stateful wrapper for inference of Transformer-based algorithms with discounted returns to go.
+    """
+    def predict(self, x: Observation, reward: float) -> Union[NDArray, int]:
+        r"""Returns action.
+
+        Args:
+            x: Observation.
+            reward: Last reward.
+
+        Returns:
+            Action.
+        """
+        self._observations.append(x)
+        self._rewards.append(reward)
+        discounted_reward = reward * (self._algo.config.gamma ** self._timestep)
+        self._returns_to_go.append(self._return_rest - discounted_reward)
+        self._timesteps.append(self._timestep)
+
+        numpy_observations: Observation
+        if isinstance(x, np.ndarray):
+            numpy_observations = np.array(self._observations)
+        else:
+            numpy_observations = [
+                np.array([o[i] for o in self._observations])
+                for i in range(len(x))
+            ]
+
+        inpt = TransformerInput(
+            observations=numpy_observations,
+            actions=np.array(self._actions),
+            rewards=np.array(self._rewards).reshape((-1, 1)),
+            returns_to_go=np.array(self._returns_to_go).reshape((-1, 1)),
+            timesteps=np.array(self._timesteps),
+        )
+        action = self._action_sampler(self._algo.predict(inpt))
+        self._actions[-1] = action
+        self._actions.append(self._get_pad_action())
+        self._timestep = min(self._timestep + 1, self._algo.config.max_timestep)
+        self._return_rest -= discounted_reward
+        return action
 
 class TransformerAlgoBase(
     Generic[TTransformerImpl, TTransformerConfig],
@@ -606,4 +649,24 @@ class TransformerAlgoBase(
                 action_sampler = SoftmaxTransformerActionSampler()
         return StatefulTransformerWrapper(self, target_return, action_sampler)
 
+    def as_discounted_rtg_wrapper(
+        self,
+        target_return: float,
+        action_sampler: Optional[TransformerActionSampler] = None,
+    ) -> DiscountedRTGWrapper[TTransformerImpl, TTransformerConfig]:
+        """Returns a wrapped Transformer algorithm for stateful decision making.
+
+        Args:
+            target_return: Target environment return.
+            action_sampler: Action sampler.
+
+        Returns:
+            StatefulTransformerWrapper object.
+        """
+        if action_sampler is None:
+            if self.get_action_type() == ActionSpace.CONTINUOUS:
+                action_sampler = IdentityTransformerActionSampler()
+            else:
+                action_sampler = SoftmaxTransformerActionSampler()
+        return DiscountedRTGWrapper(self, target_return, action_sampler)    
 
