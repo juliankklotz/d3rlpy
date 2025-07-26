@@ -33,7 +33,7 @@ from .logging import LOG
 from .types import NDArray, UInt8NDArray
 
 __all__ = [
-    "DATA_DIRECTORY",
+    "DATA_DIRECTORY"
     "DROPBOX_URL",
     "CARTPOLE_URL",
     "CARTPOLE_RANDOM_URL",
@@ -47,7 +47,7 @@ __all__ = [
     "get_dataset",
 ]
 
-DATA_DIRECTORY = "d3rlpy_data"
+DATA_DIRECTORY = os.environ.get("D3RLPY_DATASETS_PATH", "d3rlpy_data")
 DROPBOX_URL = "https://www.dropbox.com/s"
 CARTPOLE_URL = f"{DROPBOX_URL}/uep0lzlhxpi79pd/cartpole_v1.1.0.h5?dl=1"
 CARTPOLE_RANDOM_URL = f"{DROPBOX_URL}/4lgai7tgj84cbov/cartpole_random_v1.1.0.h5?dl=1"  # noqa: E501
