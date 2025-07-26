@@ -106,7 +106,7 @@ def evaluate_transformer_with_environment(
         algo.reset()
         observation, reward = env.reset()[0], 0.0
         episode_reward = 0.0
-
+        step_count = 0
         while True:
             # take action
             action = algo.predict(observation, reward)
@@ -114,8 +114,9 @@ def evaluate_transformer_with_environment(
             observation, _reward, done, truncated, _ = env.step(action)
             reward = float(_reward)
             episode_reward += reward
+            step_count += 1
 
-            if done or truncated:
+            if done or truncated or step_count >= algo._max_timestep:
                 break
         episode_rewards.append(episode_reward)
     output = {
