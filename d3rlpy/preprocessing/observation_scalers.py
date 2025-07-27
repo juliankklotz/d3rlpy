@@ -26,6 +26,7 @@ __all__ = [
     "MinMaxObservationScaler",
     "StandardObservationScaler",
     "TupleObservationScaler",
+    "MinariAtariPixelObservationScaler",
     "register_observation_scaler",
     "make_observation_scaler_field",
 ]
@@ -500,8 +501,25 @@ class TupleObservationScaler(ObservationScaler):
     def built(self) -> bool:
         return all(scaler.built for scaler in self.observation_scalers)
 
+class MinariAtariPixelObservationScaler(PixelObservationScaler):
+    def transform(self, x: torch.Tensor) -> torch.Tensor:
+        # For batched tensors, handle BCHW or BHWC formats
+        if x.ndim == 4 and x.shape[-1] in [1, 3, 4]:  # BHWC → BCHW
+            x = x.permute(0, 3, 1, 2)
+        elif x.ndim == 3 and x.shape[-1] in [1, 3, 4]:  # HWC → CHW
+            x = x.permute(2, 0, 1)
+        return super().transform(x)
+
+    def transform_numpy(self, x: np.ndarray) -> np.ndarray:
+        if x.ndim == 3 and x.shape[-1] in [1, 3, 4]:  # HWC → CHW
+            x = np.transpose(x, (2, 0, 1))
+        elif x.ndim == 4 and x.shape[-1] in [1, 3, 4]:  # NHWC → NCHW
+            x = np.transpose(x, (0, 3, 1, 2))
+        return super().transform_numpy(x)
+
 
 register_observation_scaler(PixelObservationScaler)
 register_observation_scaler(MinMaxObservationScaler)
 register_observation_scaler(StandardObservationScaler)
 register_observation_scaler(TupleObservationScaler)
+register_observation_scaler(MinariAtariPixelObservationScaler)
