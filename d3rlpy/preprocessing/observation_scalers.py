@@ -517,9 +517,8 @@ class MinariAtariPixelObservationScaler(PixelObservationScaler):
             x = np.transpose(x, (0, 3, 1, 2))
         return super().transform_numpy(x)
 
-
-register_observation_scaler(PixelObservationScaler)
+register_observation_scaler(MinariAtariPixelObservationScaler)
+#register_observation_scaler(PixelObservationScaler)
 register_observation_scaler(MinMaxObservationScaler)
 register_observation_scaler(StandardObservationScaler)
 register_observation_scaler(TupleObservationScaler)
-register_observation_scaler(MinariAtariPixelObservationScaler)
