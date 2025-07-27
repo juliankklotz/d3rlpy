@@ -552,6 +552,21 @@ def get_minari(
                     )
             else:
                 raise ValueError("Unsupported observation format.")
+            if "atari" in env_name:
+                # For Atari, observations are expected to be in NHWC format
+                if _observations.ndim == 3:
+                    _observations = np.expand_dims(_observations, axis=0)
+                elif _observations.ndim == 4 and _observations.shape[-1] in [
+                    1,
+                    3,
+                    4,
+                ]:
+                    # Ensure the observation is in NHWC format
+                    _observations = np.transpose(
+                        _observations, (0, 2, 3, 1)
+                    )
+            
+            
             observations.append(_observations)
             actions.append(ep.actions)
             rewards.append(ep.rewards)
@@ -584,6 +599,7 @@ def get_minari(
         raise ImportError(
             "minari is not installed.\n" "$ d3rlpy install minari"
         ) from e
+
 
 
 ATARI_GAMES = [
