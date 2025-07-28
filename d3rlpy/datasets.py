@@ -553,18 +553,12 @@ def get_minari(
             else:
                 raise ValueError("Unsupported observation format.")
             if "atari" in env_name:
-                # For Atari, observations are expected to be in NHWC format
-                if _observations.ndim == 3:
-                    _observations = np.expand_dims(_observations, axis=0)
-                elif _observations.ndim == 4 and _observations.shape[-1] in [
-                    1,
-                    3,
-                    4,
-                ]:
-                    # Ensure the observation is in NHWC format
-                    _observations = np.transpose(
-                        _observations, (0, 2, 3, 1)
-                    )
+                # Minari gives NHWC → we need NCHW
+                if _observations.ndim == 3 and _observations.shape[-1] in [1, 3, 4]:
+                    _observations = np.transpose(_observations, (2, 0, 1))  # HWC → CHW
+                    _observations = np.expand_dims(_observations, axis=0)   # → NCHW
+                elif _observations.ndim == 4 and _observations.shape[-1] in [1, 3, 4]:
+                    _observations = np.transpose(_observations, (0, 3, 1, 2))  # NHWC → NCHW
             
             
             observations.append(_observations)
