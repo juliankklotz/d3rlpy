@@ -105,6 +105,9 @@ def evaluate_transformer_with_environment(
     for _ in range(n_trials):
         algo.reset()
         observation, reward = env.reset()[0], 0.0
+        if env.spec.id.startswith("ALE"):
+            observation = observation.transpose(2, 0, 1)
+
         episode_reward = 0.0
         step_count = 0
         while True:
@@ -112,6 +115,8 @@ def evaluate_transformer_with_environment(
             action = algo.predict(observation, reward)
 
             observation, _reward, done, truncated, _ = env.step(action)
+            if env.spec.id.startswith("ALE"):
+                observation = observation.transpose(2, 0, 1)
             reward = float(_reward)
             episode_reward += reward
             step_count += 1
