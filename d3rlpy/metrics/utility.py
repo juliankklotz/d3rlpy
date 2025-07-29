@@ -121,7 +121,7 @@ def evaluate_transformer_with_environment(
             episode_reward += reward
             step_count += 1
 
-            if done or truncated or step_count >= algo._max_timestep:
+            if done or truncated:
                 break
         episode_rewards.append(episode_reward)
     output = {
