@@ -432,7 +432,7 @@ class TransformerAlgoBase(
         callback: Optional[Callable[[Self, int, int], None]] = None,
         n_trials: int = 50,
         eval_gaps: int = 5,
-        patience: int = 10,
+        patience: int = 20,
     ) -> None:
         """Trains with given dataset.
 
@@ -563,13 +563,14 @@ class TransformerAlgoBase(
                             score=best_score,
                         )
                         best_epoch = epoch
-                        if eval_gaps == 1:
-                            LOG.info(
-                                f"Saving model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{epoch}.d3'",
-                                epoch=epoch,
-                            )
-                            logger.save_model(f"epoch_{epoch}", self)
-                            keep_models.append(epoch)
+                        # if eval_gaps == 1:
+
+                        LOG.info(
+                            f"Saving model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{epoch}.d3'",
+                            epoch=epoch,
+                        )
+                        logger.save_model(f"epoch_{epoch}", self)
+                        keep_models.append(epoch)
                     else:
                         patience_count = epoch - best_epoch
                         if patience_count > patience:
@@ -577,8 +578,9 @@ class TransformerAlgoBase(
                     
                     
                     for kept_model in keep_models[:]:
-                        if (eval_gaps != 1 and kept_model not in range(best_epoch - 2, best_epoch + 3)) or \
-                        (eval_gaps == 1 and kept_model != best_epoch):
+                        if kept_model != best_epoch:
+                        # if (eval_gaps != 1 and kept_model not in range(best_epoch - 2, best_epoch + 3)) or \
+                        # (eval_gaps == 1 and kept_model != best_epoch):
                             try:
                                 LOG.info(
                                     f"Removing old model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{kept_model}.d3'",
@@ -601,9 +603,9 @@ class TransformerAlgoBase(
                 print(f"Early stopping at epoch {epoch} due to no improvement in the last 10 epochs.")
                 break
             
-            if eval_gaps != 1:
-                keep_models.append(epoch)
-                logger.save_model(f"epoch_{epoch}", self)
+            # if eval_gaps != 1:
+            #     keep_models.append(epoch)
+            #     logger.save_model(f"epoch_{epoch}", self)
 
         logger.close()
 
