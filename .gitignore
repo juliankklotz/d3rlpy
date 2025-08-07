@@ -33,3 +33,6 @@ d3rlpy_logs/*
 #bin files
 *bin/
 *mopo-master
+
+#data
+data/*
