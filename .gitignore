@@ -27,3 +27,9 @@ dist
 *.err
 # ignore d3rlpy logs
 d3rlpy_logs/*
+
+# other repos
+*gym-sepsis
+#bin files
+*bin/
+*mopo-master
