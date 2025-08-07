@@ -8,7 +8,7 @@ from typing import (
     Sequence,
     TypeVar,
 )
-
+import os
 import numpy as np
 import torch
 from torch import nn
@@ -611,6 +611,7 @@ class QLearningAlgoBase(
         logger_adapter: LoggerAdapterFactory = FileAdapterFactory(),
         show_progress: bool = True,
         callback: Optional[Callable[[Self, int, int], None]] = None,
+        patience = 20,
     ) -> None:
         """Start training loop of online deep reinforcement learning.
 
@@ -755,20 +756,64 @@ class QLearningAlgoBase(
             if epoch > 0 and total_step % n_steps_per_epoch == 0:
                 # evaluation
                 if eval_env:
-                    eval_score = evaluate_qlearning_with_environment(
+                    eval_dict = evaluate_qlearning_with_environment(
                         self,
                         eval_env,
                         n_trials=eval_n_trials,
                         epsilon=eval_epsilon,
                     )
-                    logger.add_metric("evaluation", eval_score)
+                    for name, val in eval_dict.items():
+                        logger.add_metric(f"eval_{name}", val)
 
-                if epoch % save_interval == 0:
-                    logger.save_model(total_step, self)
+
+                    eval_score = eval_dict["episode_mean_reward"]
+
+                    if eval_score > best_score:
+                        best_score = eval_score
+                        LOG.info(
+                            "New best score",
+                            epoch=epoch,
+                            score=best_score,
+                        )
+                        best_epoch_old = best_epoch
+                        best_epoch = epoch
+                        # if eval_gaps == 1:
+
+                        LOG.info(
+                            f"Saving model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{epoch}.d3'",
+                            epoch=epoch,
+                        )
+                        logger.save_model(f"epoch_{epoch}", self)
+
+                        try:
+                            LOG.info(
+                                f"Removing old model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{best_epoch_old}.d3'",
+                                epoch=best_epoch_old,
+                            )
+                            
+                            os.remove(f"d3rlpy_logs/{logger._experiment_name}/model_epoch_{best_epoch_old}.d3")
+                        except FileNotFoundError:
+                            LOG.warning(
+                                f"Model 'd3rlpy_logs/{logger._experiment_name}/model_epoch_{best_epoch_old}.d3' not found.",
+                                epoch=best_epoch_old,
+                            )
+
+                    else:
+                        patience_count = epoch - best_epoch
+                        if patience_count > patience:
+                            exit = True
+
+
+                # if epoch % save_interval == 0:
+                #     logger.save_model(total_step, self)
 
                 # save metrics
                 if logging_strategy == LoggingStrategy.EPOCH:
                     logger.commit(epoch, total_step)
+                
+            if exit:
+                print(f"Early stopping at epoch {epoch} due to no improvement in the last 10 epochs.")
+                break
 
         # clip the last episode
         buffer.clip_episode(False)
