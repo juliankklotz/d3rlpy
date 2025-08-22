@@ -10,6 +10,7 @@ __all__ = [
     "TrajectorySlicerProtocol",
     "BasicTrajectorySlicer",
     "FrameStackTrajectorySlicer",
+    "EvalTrajectorySlicer",
 ]
 
 
@@ -66,6 +67,76 @@ class BasicTrajectorySlicer(TrajectorySlicerProtocol):
             + episode.rewards[start:]
         )
         returns_to_go = all_returns_to_go[:actual_size].reshape((-1, 1))
+
+        # prepare metadata
+        timesteps: Int32NDArray = np.arange(start, end) + 1
+        masks: Float32NDArray = np.ones(end - start, dtype=np.float32)
+
+        # compute backward padding size
+        pad_size = size - actual_size
+
+        if pad_size == 0:
+            return PartialTrajectory(
+                observations=observations,
+                actions=actions,
+                rewards=rewards,
+                returns_to_go=returns_to_go,
+                terminals=terminals,
+                timesteps=timesteps,
+                masks=masks,
+                length=size,
+            )
+
+        return PartialTrajectory(
+            observations=batch_pad_observations(observations, pad_size),
+            actions=batch_pad_array(actions, pad_size),
+            rewards=batch_pad_array(rewards, pad_size),
+            returns_to_go=batch_pad_array(returns_to_go, pad_size),
+            terminals=batch_pad_array(terminals, pad_size),
+            timesteps=batch_pad_array(timesteps, pad_size),
+            masks=batch_pad_array(masks, pad_size),
+            length=size,
+        )
+
+
+class EvalTrajectorySlicer(TrajectorySlicerProtocol):
+    r"""Evaluation trajectory slicer with history dependent reward_to_go and discouting (gamma) option.
+    """
+    def __init__(self, gamma: float, target_return: float):
+        self.gamma = gamma
+        self.target_return = target_return
+    
+
+    def __call__(
+        self, episode: EpisodeBase, end_index: int, size: int
+    ) -> PartialTrajectory:
+        end = end_index + 1
+        start = max(end - size, 0)
+        actual_size = end - start
+
+        # prepare terminal flags
+        terminals: Float32NDArray = np.zeros((actual_size, 1), dtype=np.float32)
+        if episode.terminated and end_index == episode.size() - 1:
+            terminals[-1][0] = 1.0
+
+        # slice data
+        observations = slice_observations(episode.observations, start, end)
+        actions = episode.actions[start:end]
+        rewards = episode.rewards[start:end]
+        full_rewards = episode.rewards[:end]
+        gammas = self.gamma ** np.arange(end)
+        discounted_rewards = full_rewards * gammas
+        discounted_history_rewards = np.cumsum(discounted_rewards)
+        discounted_history_rewards_until_t = np.concatenate([np.array([0.0]), discounted_history_rewards[:-1]])
+        returns_to_go = self.target_return - discounted_history_rewards_until_t[start:end]
+
+        # # cumsum includes the current timestep
+        # all_returns_to_go = (
+        #     ret
+        #     - np.cumsum(episode.rewards[start:], axis=0)
+        #     + episode.rewards[start:]
+        # )
+        # returns_to_go = all_returns_to_go[:actual_size].reshape((-1, 1))
 
         # prepare metadata
         timesteps: Int32NDArray = np.arange(start, end) + 1

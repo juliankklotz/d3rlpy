@@ -7,6 +7,7 @@ from typing import (
     Optional,
     Sequence,
     TypeVar,
+    Union,
 )
 import os
 import numpy as np
@@ -24,6 +25,7 @@ from ...constants import (
 from ...dataset import (
     ReplayBufferBase,
     TransitionMiniBatch,
+    TrajectoryMiniBatch,
     check_non_1d_array,
     create_fifo_replay_buffer,
     is_tuple_shape,
@@ -38,6 +40,7 @@ from ...metrics import EvaluatorProtocol, evaluate_qlearning_with_environment
 from ...models.torch import Policy
 from ...torch_utility import (
     TorchMiniBatch,
+    TorchTrajectoryMiniBatch,
     convert_to_torch,
     convert_to_torch_recursively,
     eval_api,
@@ -382,6 +385,7 @@ class QLearningAlgoBase(
         evaluators: Optional[dict[str, EvaluatorProtocol]] = None,
         callback: Optional[Callable[[Self, int, int], None]] = None,
         epoch_callback: Optional[Callable[[Self, int, int], None]] = None,
+        batch_type="trajectory",
     ) -> list[tuple[int, dict[str, float]]]:
         """Trains with given dataset.
 
@@ -429,6 +433,7 @@ class QLearningAlgoBase(
                 evaluators=evaluators,
                 callback=callback,
                 epoch_callback=epoch_callback,
+                batch_type=batch_type,
             )
         )
         return results
@@ -448,6 +453,7 @@ class QLearningAlgoBase(
         evaluators: Optional[dict[str, EvaluatorProtocol]] = None,
         callback: Optional[Callable[[Self, int, int], None]] = None,
         epoch_callback: Optional[Callable[[Self, int, int], None]] = None,
+        batch_type="trajectory",
     ) -> Generator[tuple[int, dict[str, float]], None, None]:
         """Iterate over epochs steps to train with the given dataset. At each
         iteration algo methods and properties can be changed or queried.
@@ -536,13 +542,22 @@ class QLearningAlgoBase(
                 with logger.measure_time("step"):
                     # pick transitions
                     with logger.measure_time("sample_batch"):
-                        batch = dataset.sample_transition_batch(
-                            self._config.batch_size
-                        )
+                        if batch_type=="trajectory":
+                            batch = dataset.sample_trajectory_batch(
+                                self._config.batch_size,
+                                length=20,
+                            )
+                        else:
+                            batch = dataset.sample_transition_batch(
+                                self._config.batch_size
+                            )
 
                     # update parameters
                     with logger.measure_time("algorithm_update"):
-                        loss = self.update(batch)
+                        if batch_type=="trajectory":
+                            loss = self.update_general_batch(batch)
+                        else:
+                            loss = self.update(batch)
 
                     # record metrics
                     for name, val in loss.items():
@@ -923,6 +938,35 @@ class QLearningAlgoBase(
         loss = self._impl.update(torch_batch, self._grad_step)
         self._grad_step += 1
         return loss
+
+    def update_general_batch(self, batch: Union[TransitionMiniBatch, TrajectoryMiniBatch]) -> dict[str, float]:
+        assert self._impl, "FQEImpl not initialized"
+
+        if isinstance(batch, TransitionMiniBatch):
+            torch_batch = TorchMiniBatch.from_batch(
+                batch=batch,
+                gamma=self._config.gamma,
+                compute_returns_to_go=self.need_returns_to_go,
+                device=self._device,
+                observation_scaler=self._config.observation_scaler,
+                action_scaler=self._config.action_scaler,
+                reward_scaler=self._config.reward_scaler,
+            )
+        elif isinstance(batch, TrajectoryMiniBatch):
+            torch_batch = TorchTrajectoryMiniBatch.from_batch(
+                batch=batch,
+                device=self._device,
+                observation_scaler=self._config.observation_scaler,
+                action_scaler=self._config.action_scaler,
+                reward_scaler=self._config.reward_scaler,
+            )
+        else:
+            raise ValueError("Unsupported batch type")
+
+        loss = self._impl.update(torch_batch, self._grad_step)
+        self._grad_step += 1
+        return loss
+
 
     @property
     def need_returns_to_go(self) -> bool:

@@ -2,6 +2,8 @@ import numpy as np
 
 from ..interface import QLearningAlgoProtocol, StatefulTransformerAlgoProtocol
 from ..types import GymEnv
+import torch
+
 
 __all__ = [
     "evaluate_qlearning_with_environment",
