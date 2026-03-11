@@ -5,7 +5,8 @@
 #SBATCH --time=12:00:00
 #SBATCH --mem=4G
 #SBATCH --array=0-1
-
+#SBATCH --output=/gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy/experiments/exp08_discrete_TACR/slurm_logs/disc_tacr_tune_%A_%a.out
+#SBATCH --error=/gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy/experiments/exp08_discrete_TACR/slurm_logs/disc_tacr_tune_%A_%a.err
 
 # Hyperparameter grids
 ACTOR_LRS=(0.0001 0.0003)
@@ -62,9 +63,9 @@ export MINARI_DATASETS_PATH="/gpfs/data/fs72297/jklotz/programming_data/d3rlpy_d
   --context_size $CONTEXT \
   --max_timestep 200 \
   --compile_graph False \
-  --n_steps 200000 \
-  --n_steps_per_epoch 1000 \
-  --save_interval 10000 \
-  --eval_interval 10000 \
+  --n_steps 200 \
+  --n_steps_per_epoch 10 \
+  --save_interval 400 \
+  --eval_interval 4000 \
   --eval_target_return 200 \
   --logdir logs/tune_ar${ACTOR_LR}_cr${CRITIC_LR}_α${ALPHA}_τ${TAU}_ctx${CONTEXT}
