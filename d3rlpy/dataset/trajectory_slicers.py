@@ -130,13 +130,6 @@ class EvalTrajectorySlicer(TrajectorySlicerProtocol):
         discounted_history_rewards_until_t = np.concatenate([np.array([0.0]), discounted_history_rewards[:-1]])
         returns_to_go = self.target_return - discounted_history_rewards_until_t[start:end]
 
-        # # cumsum includes the current timestep
-        # all_returns_to_go = (
-        #     ret
-        #     - np.cumsum(episode.rewards[start:], axis=0)
-        #     + episode.rewards[start:]
-        # )
-        # returns_to_go = all_returns_to_go[:actual_size].reshape((-1, 1))
 
         # prepare metadata
         timesteps: Int32NDArray = np.arange(start, end) + 1

@@ -13,7 +13,7 @@ __all__ = [
 
 
 class TransformerActionSampler(Protocol):
-    r"""Interface of TransformerActionSampler."""
+    r"""Interface of TransformerActi    onSampler."""
 
     def __call__(self, transformer_output: NDArray) -> Union[NDArray, int]:
         r"""Returns sampled action from Transformer output.
