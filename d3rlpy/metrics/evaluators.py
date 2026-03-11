@@ -9,6 +9,7 @@ from ..dataset import (
     TransitionPickerProtocol,
 )
 from ..interface import QLearningAlgoProtocol
+from ..interface import StatefulTransformerAlgoProtocol
 from ..types import GymEnv
 from .utility import evaluate_qlearning_with_environment
 
@@ -256,16 +257,26 @@ class InitialStateValueEstimationEvaluator(EvaluatorProtocol):
         self,
         algo: QLearningAlgoProtocol,
         dataset: ReplayBufferBase,
+        transformer_algo: Optional[StatefulTransformerAlgoProtocol] = None,
     ) -> float:
         total_values = []
         episodes = self._episodes if self._episodes else dataset.episodes
+        actions_list = []
         for episode in episodes:
             for batch in make_batches(
                 episode, WINDOW_SIZE, dataset.transition_picker
             ):
                 # estimate action-value in initial states
                 first_obs = np.expand_dims(batch.observations[0], axis=0)
-                actions = algo.predict(first_obs)
+                if transformer_algo:
+                    for first_observation in first_obs:
+                        transformer_algo.reset()
+                        action = transformer_algo.predict(first_observation,0.0)
+                        actions_list.append(action)
+                    actions = np.expand_dims(np.array(actions_list))
+                else:
+                    actions = algo.predict(first_obs)
+
                 values = algo.predict_value(first_obs, actions)
                 total_values.append(values[0])
         return float(np.mean(total_values))
@@ -317,6 +328,7 @@ class SoftOPCEvaluator(EvaluatorProtocol):
         episodes = self._episodes if self._episodes else dataset.episodes
         for episode in episodes:
             is_success = episode.compute_return() >= self._return_threshold
+
             for batch in make_batches(
                 episode, WINDOW_SIZE, dataset.transition_picker
             ):
@@ -326,6 +338,63 @@ class SoftOPCEvaluator(EvaluatorProtocol):
                     success_values += values.reshape(-1).tolist()
         return float(np.mean(success_values) - np.mean(all_values))
 
+
+class SoftOPCEvaluatorTransformer(EvaluatorProtocol):
+    r"""Returns Soft Off-Policy Classification metrics.
+
+    The metric of the scorer funciton is evaluating gaps of action-value
+    estimation between the success episodes and the all episodes.
+    If the learned Q-function is optimal, action-values in success episodes
+    are expected to be higher than the others.
+    The success episode is defined as an episode with a return above the given
+    threshold.
+
+    .. math::
+
+        \mathbb{E}_{s, a \sim D_{success}} [Q(s, a)]
+            - \mathbb{E}_{s, a \sim D} [Q(s, a)]
+
+    References:
+        * `Irpan et al., Off-Policy Evaluation via Off-Policy Classification.
+          <https://arxiv.org/abs/1906.01624>`_
+
+    Args:
+        return_threshold: Return threshold of success episodes.
+        episodes: Optional evaluation episodes. If it's not given, dataset
+            used in training will be used.
+    """
+
+    _return_threshold: float
+    _episodes: Optional[Sequence[EpisodeBase]]
+
+    def __init__(
+        self,
+        return_threshold: float,
+        episodes: Optional[Sequence[EpisodeBase]] = None,
+    ):
+        self._return_threshold = return_threshold
+        self._episodes = episodes
+
+    def __call__(
+        self,
+        algo: QLearningAlgoProtocol,
+        transformer_algo: StatefulTransformerAlgoProtocol,
+        dataset: ReplayBufferBase,
+    ) -> float:
+        success_values = []
+        all_values = []
+        episodes = self._episodes if self._episodes else dataset.episodes
+        for episode in episodes:
+            is_success = episode.compute_return() >= self._return_threshold
+            for batch in make_batches(
+                episode, WINDOW_SIZE, dataset.transition_picker
+            ):
+                StatefulTransformerAlgoProtocol.predict(episode.observations[0])
+                values = algo.predict_value(batch.observations, batch.actions)
+                all_values += values.reshape(-1).tolist()
+                if is_success:
+                    success_values += values.reshape(-1).tolist()
+        return float(np.mean(success_values) - np.mean(all_values))
 
 class ContinuousActionDiffEvaluator(EvaluatorProtocol):
     r"""Returns squared difference of actions between algorithm and dataset.

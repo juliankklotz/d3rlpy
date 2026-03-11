@@ -1,4 +1,4 @@
-name: d3rlpy_dev_requirements_py310
+name: d3rlpy_dev_final_py310
 channels:
   - conda-forge
   - defaults

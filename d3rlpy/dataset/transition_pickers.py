@@ -14,6 +14,7 @@ from .utils import (
 __all__ = [
     "TransitionPickerProtocol",
     "BasicTransitionPicker",
+    "BasicDTEvaluationTransitionPicker",
     "SparseRewardTransitionPicker",
     "FrameStackTransitionPicker",
     "MultiStepTransitionPicker",
@@ -69,6 +70,37 @@ class BasicTransitionPicker(TransitionPickerProtocol):
             terminal=float(is_terminal),
             interval=1,
             rewards_to_go=episode.rewards[index:],
+        )
+
+class BasicDTEvaluationTransitionPicker(TransitionPickerProtocol):
+    r"""Standard transition picker.
+
+    This class implements a basic transition picking.
+    """
+
+    def __call__(self, episode: EpisodeBase, index: int) -> Transition:
+        _validate_index(episode, index)
+
+        observation = retrieve_observation(episode.observations, index)
+        is_terminal = episode.terminated and index == episode.size() - 1
+        if is_terminal:
+            next_observation = create_zero_observation(observation)
+            next_action = np.zeros_like(episode.actions[index])
+        else:
+            next_observation = retrieve_observation(
+                episode.observations, index + 1
+            )
+            next_action = episode.actions[index + 1]
+
+        return Transition(
+            observation=observation,
+            action=episode.actions[index],
+            reward=episode.rewards[index],
+            next_observation=next_observation,
+            next_action=next_action,
+            terminal=float(is_terminal),
+            interval=1,
+            rewards_before=episode.rewards[:index],
         )
 
 
