@@ -28,12 +28,13 @@ from .dataset import (
     create_infinite_replay_buffer,
     load_v1,
 )
+from .sepsis_loader import get_sepsis
 from .envs import ChannelFirst, FrameStack, GoalConcatWrapper
 from .logging import LOG
 from .types import NDArray, UInt8NDArray
 
 __all__ = [
-    "DATA_DIRECTORY"
+    "DATA_DIRECTORY",
     "DROPBOX_URL",
     "CARTPOLE_URL",
     "CARTPOLE_RANDOM_URL",
@@ -45,6 +46,8 @@ __all__ = [
     "get_atari_transitions",
     "get_d4rl",
     "get_dataset",
+    "get_sepsis",
+    "get_minari",
 ]
 
 DATA_DIRECTORY = os.environ.get("D3RLPY_DATASETS_PATH", "d3rlpy_data")
