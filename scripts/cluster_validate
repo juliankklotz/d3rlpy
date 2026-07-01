@@ -1,0 +1,34 @@
+#!/bin/bash -eu
+# Minimal validation to embed at the top of every SLURM job.
+# Catches broken envs before wasting GPU hours.
+# Usage: source scripts/cluster_validate  (or bash scripts/cluster_validate)
+
+PYTHON="${PYTHON:-$(which python)}"
+
+echo "[validate] Python: $PYTHON"
+
+"$PYTHON" - <<'PYCHECK'
+import sys
+
+checks = [
+    "torch", "typing_extensions", "gymnasium",
+    "d3rlpy", "d3rlpy.algos", "d3rlpy.ope",
+]
+for mod in checks:
+    try:
+        __import__(mod)
+    except ImportError as e:
+        print(f"[validate] FAILED import {mod}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+import torch
+import importlib.metadata
+te_ver_str = importlib.metadata.version("typing_extensions")
+te_version = tuple(int(x) for x in te_ver_str.split(".")[:2])
+if te_version < (4, 8):
+    print(f"[validate] typing_extensions too old: {te_ver_str} < 4.8 (torch will fail)", file=sys.stderr)
+    sys.exit(1)
+
+print(f"[validate] torch={torch.__version__}  typing_extensions={te_ver_str}")
+print("[validate] imports OK")
+PYCHECK

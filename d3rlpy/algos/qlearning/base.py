@@ -385,7 +385,7 @@ class QLearningAlgoBase(
         evaluators: Optional[dict[str, EvaluatorProtocol]] = None,
         callback: Optional[Callable[[Self, int, int], None]] = None,
         epoch_callback: Optional[Callable[[Self, int, int], None]] = None,
-        batch_type="trajectory",
+        batch_type: str = "transition",
     ) -> list[tuple[int, dict[str, float]]]:
         """Trains with given dataset.
 
@@ -453,7 +453,7 @@ class QLearningAlgoBase(
         evaluators: Optional[dict[str, EvaluatorProtocol]] = None,
         callback: Optional[Callable[[Self, int, int], None]] = None,
         epoch_callback: Optional[Callable[[Self, int, int], None]] = None,
-        batch_type="trajectory",
+        batch_type: str = "transition",
     ) -> Generator[tuple[int, dict[str, float]], None, None]:
         """Iterate over epochs steps to train with the given dataset. At each
         iteration algo methods and properties can be changed or queried.

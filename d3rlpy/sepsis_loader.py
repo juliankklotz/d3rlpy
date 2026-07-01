@@ -27,7 +27,7 @@ __all__ = [
 ]
 
 
-# Define observation features (49 total)
+# 47 clinical observation features (no patient ID — icustayid excluded)
 OBSERVATION_COLUMNS = [
     # Time-varying vitals and labs (34 features)
     "GCS", "HR", "SysBP", "DiaBP", "MeanBP", "RR", "Temp_C",
@@ -36,13 +36,11 @@ OBSERVATION_COLUMNS = [
     "PTT", "PT", "Arterial_pH", "Arterial_lactate", "paO2", "paCO2",
     "PaO2_FiO2", "HCO3", "SpO2", "BUN", "Creatinine", "SGOT",
     "SGPT", "Total_bili", "Arterial_BE",
-    # SOFA subscores (7 features)
+    # SOFA subscores computed by compute_sofa_scores() (7 features)
     "paO2_FiO2", "SOFA_resp", "SOFA_coag", "SOFA_liver",
     "SOFA_cardio", "SOFA_cns", "SOFA_renal",
-    # Demographics (4 features)
+    # Demographics (6 features)
     "age", "gender", "Weight_kg", "mechvent", "extubated", "re_admission",
-    # ICU stay ID (1 feature)
-    "icustayid",
 ]
 
 
@@ -268,19 +266,25 @@ def _dataframe_to_replaybuffer(
     action_size: int,
     time_col: str = "timestep_dt",
     id_col: str = "icustayid",
+    outcome_col: str = "morta_90",
+    transition_picker: Optional[TransitionPickerProtocol] = None,
+    trajectory_slicer: Optional[TrajectorySlicerProtocol] = None,
 ) -> ReplayBuffer:
     """Convert preprocessed DataFrame to d3rlpy ReplayBuffer.
-    
+
     Args:
         df: Preprocessed sepsis data.
         obs_cols: Observation column names.
         action_cols: Action column names.
-        reward_col: Reward column name (typically SOFA score).
+        reward_col: Reward column name.
         action_space: DISCRETE or CONTINUOUS.
         action_size: Number of discrete actions or continuous action dimensions.
         time_col: Timestamp column name.
         id_col: ICU stay identifier column name.
-        
+        outcome_col: Binary mortality column (1=died). Used to set terminated flag.
+        transition_picker: Optional transition picker override.
+        trajectory_slicer: Optional trajectory slicer override.
+
     Returns:
         ReplayBuffer containing episodic ICU stay data.
     """
@@ -290,18 +294,21 @@ def _dataframe_to_replaybuffer(
     for stay_id, g in df.groupby(id_col, sort=False):
         obs = g[obs_cols].to_numpy(dtype=np.float32)
         acts = g[action_cols].to_numpy(dtype=np.float32)
-        
+
         # Flatten discrete actions to scalar
         if action_space == ActionSpace.DISCRETE and acts.shape[1] == 1:
             acts = acts.flatten().astype(np.int32)
-        
+
         rews = g[reward_col].to_numpy(dtype=np.float32)
+
+        # Death = absorbing terminal state; survival = episode end (not terminal)
+        died = bool(g[outcome_col].iloc[-1]) if outcome_col in g.columns else True
 
         ep = Episode(
             observations=obs,
             actions=acts,
             rewards=rews,
-            terminated=True,
+            terminated=died,
         )
         episodes.append(ep)
 
@@ -310,6 +317,8 @@ def _dataframe_to_replaybuffer(
         episodes=episodes,
         action_space=action_space,
         action_size=action_size,
+        transition_picker=transition_picker,
+        trajectory_slicer=trajectory_slicer,
     )
     return buf
 
@@ -317,101 +326,98 @@ def _dataframe_to_replaybuffer(
 def get_sepsis(
     data_dir: Optional[str] = None,
     action_space: ActionSpace = ActionSpace.DISCRETE,
+    reward_mode: str = "terminal",
     transition_picker: Optional[TransitionPickerProtocol] = None,
     trajectory_slicer: Optional[TrajectorySlicerProtocol] = None,
 ) -> ReplayBuffer:
     """Load MIMIC-IV sepsis cohort dataset.
-    
-    Returns a ReplayBuffer containing ICU stay episodes for sepsis patients.
-    Each episode represents one ICU stay with 4-hour timesteps containing:
-    - Observations: 49 features (vitals, labs, SOFA subscores, demographics)
-    - Actions: Discrete (25 bins) or Continuous (2D: fluid + vasopressor)
-    - Rewards: SOFA score (0-24, higher = worse)
-    
+
+    Each episode = one ICU stay at 4-hour timesteps.
+    Observations: 47 clinical features (vitals, labs, SOFA subscores, demographics).
+    Actions: Discrete (25 bins: 5 fluids × 5 vasopressors) or Continuous (2D).
+
     Args:
-        data_dir: Path to directory containing mimic_dataset.csv and sepsis_cohort.csv.
-                  If None, uses environment variable or default path.
+        data_dir: Directory with mimic_dataset.csv and sepsis_cohort.csv.
+                  Falls back to SEPSIS_DATA_DIR env var, then <repo>/data/.
         action_space: DISCRETE (25 actions) or CONTINUOUS (2D).
-        transition_picker: TransitionPickerProtocol object.
-        trajectory_slicer: TrajectorySlicerProtocol object.
-        
+        reward_mode: "terminal" (+1 survival / -1 death at last timestep, 0 elsewhere)
+                     or "dense" (negative SOFA score each step: lower severity = higher reward).
+        transition_picker: Override for transition sampling.
+        trajectory_slicer: Override for trajectory sampling.
+
     Returns:
         ReplayBuffer with sepsis episodes.
-        
+
     Raises:
         FileNotFoundError: If CSV files are not found.
-        ValueError: If required columns are missing.
-        
-    Example:
-        >>> from d3rlpy.datasets import get_sepsis
-        >>> from d3rlpy.constants import ActionSpace
-        >>> 
-        >>> # Discrete action space (5x5 treatment grid)
-        >>> dataset = get_sepsis(action_space=ActionSpace.DISCRETE)
-        >>> print(f"Episodes: {len(dataset.episodes)}")
-        >>> print(f"Transitions: {dataset.transition_count}")
-        >>> 
-        >>> # Continuous action space (fluid + vasopressor)
-        >>> dataset = get_sepsis(action_space=ActionSpace.CONTINUOUS)
+        ValueError: If reward_mode is invalid.
     """
+    if reward_mode not in ("terminal", "dense"):
+        raise ValueError(f"reward_mode must be 'terminal' or 'dense', got {reward_mode!r}")
+
     # Determine data directory
     if data_dir is None:
-        # Try environment variable first
         if "SEPSIS_DATA_DIR" in os.environ:
             data_dir = os.environ["SEPSIS_DATA_DIR"]
-        # Fall back to default relative path
         else:
-            # Assume standard d3rlpy repo structure
             repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
             data_dir = os.path.join(repo_root, "data")
-    
+
     mimic_path = os.path.join(data_dir, "mimic_dataset.csv")
     cohort_path = os.path.join(data_dir, "sepsis_cohort.csv")
-    
-    # Check file existence
+
     if not os.path.exists(mimic_path):
         raise FileNotFoundError(
             f"MIMIC dataset not found at {mimic_path}. "
-            f"Set SEPSIS_DATA_DIR environment variable or provide data_dir argument."
+            f"Set SEPSIS_DATA_DIR or pass data_dir."
         )
     if not os.path.exists(cohort_path):
         raise FileNotFoundError(
             f"Sepsis cohort not found at {cohort_path}. "
-            f"Set SEPSIS_DATA_DIR environment variable or provide data_dir argument."
+            f"Set SEPSIS_DATA_DIR or pass data_dir."
         )
-    
-    # Load data
+
     print(f"Loading MIMIC dataset from {mimic_path}...")
     mimic_df = pd.read_csv(mimic_path)
-    
+
     print(f"Loading sepsis cohort from {cohort_path}...")
     sepsis_cohort = pd.read_csv(cohort_path)
-    
-    # Fix missing values
+
     mimic_df.loc[mimic_df["extubated"].isna(), "extubated"] = 0
-    
-    # Compute SOFA scores
+
     print("Computing SOFA scores...")
     mimic_df = compute_sofa_scores(mimic_df, timestep_resolution=4.0)
-    
-    # Filter to sepsis cohort
+
     print("Filtering to sepsis cohort...")
     sepsis_icu_ids = sepsis_cohort["icustayid"].unique()
     sepsis_df = mimic_df[mimic_df["icustayid"].isin(sepsis_icu_ids)].copy()
-    
+
     print(f"Sepsis cohort: {len(sepsis_icu_ids)} ICU stays, {len(sepsis_df)} timesteps")
-    
-    # Convert timestamps
-    sepsis_df["timestep_dt"] = pd.to_datetime(sepsis_df['timestep'], unit='s', utc=True)
-    
-    # Define action columns
+
+    sepsis_df["timestep_dt"] = pd.to_datetime(sepsis_df["timestep"], unit="s", utc=True)
+
     action_cols = ["output_total", "output_step", "median_dose_vaso", "max_dose_vaso"]
-    
-    # Select required columns
-    required_cols = OBSERVATION_COLUMNS + action_cols + ["SOFA", "timestep_dt", "timestep"]
-    filtered_df = sepsis_df[required_cols].copy()
-    
-    # Pad to regular 4-hour grid
+    outcome_col = "morta_90"
+
+    # Build reward column
+    if reward_mode == "terminal":
+        # +1 at last timestep if survived, -1 if died, 0 elsewhere
+        sepsis_df["_reward"] = 0.0
+        last_step_mask = ~sepsis_df.duplicated(subset=["icustayid"], keep="last")
+        sepsis_df.loc[last_step_mask & (sepsis_df[outcome_col] == 0), "_reward"] = 1.0
+        sepsis_df.loc[last_step_mask & (sepsis_df[outcome_col] == 1), "_reward"] = -1.0
+        reward_col = "_reward"
+    else:
+        # Dense: negative SOFA so lower severity → higher reward
+        sepsis_df["_reward"] = -sepsis_df["SOFA"].astype(np.float32)
+        reward_col = "_reward"
+
+    required_cols = (
+        OBSERVATION_COLUMNS + action_cols
+        + [reward_col, outcome_col, "timestep_dt", "timestep", "icustayid"]
+    )
+    filtered_df = sepsis_df[[c for c in required_cols if c in sepsis_df.columns]].copy()
+
     print("Padding to regular 4-hour grid...")
     padded_df = _pad_to_regular_grid(
         filtered_df,
@@ -419,35 +425,28 @@ def get_sepsis(
         action_cols=action_cols,
         ffill_cols=OBSERVATION_COLUMNS,
     )
-    
-    # Process based on action space
+
     if action_space == ActionSpace.DISCRETE:
         print("Discretizing actions to 25 bins (5x5 grid)...")
         padded_df = discretize_actions(padded_df)
         buffer_action_cols = ["action_bin"]
         action_size = 25
-    else:  # CONTINUOUS
+    else:
         print("Using continuous actions (fluid + vasopressor)...")
         buffer_action_cols = ["output_step", "median_dose_vaso"]
         action_size = 2
-    
-    # Convert to ReplayBuffer
+
     print("Converting to ReplayBuffer...")
     buffer = _dataframe_to_replaybuffer(
         padded_df,
         obs_cols=OBSERVATION_COLUMNS,
         action_cols=buffer_action_cols,
-        reward_col="SOFA",
+        reward_col=reward_col,
         action_space=action_space,
         action_size=action_size,
+        outcome_col=outcome_col,
+        transition_picker=transition_picker,
+        trajectory_slicer=trajectory_slicer,
     )
-    
-    # Apply transition picker and trajectory slicer if provided
-    if transition_picker is not None:
-        buffer._transition_picker = transition_picker
-    if trajectory_slicer is not None:
-        buffer._trajectory_slicer = trajectory_slicer
-    
     print(f"✓ Loaded {len(buffer.episodes)} episodes, {buffer.transition_count} transitions")
-    
     return buffer

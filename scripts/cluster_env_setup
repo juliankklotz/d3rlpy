@@ -1,0 +1,112 @@
+#!/bin/bash -eu
+# Create or rebuild the thesis conda environment on any machine (local or cluster).
+# Usage: bash scripts/cluster_env_setup [--rebuild]
+#
+# Cluster path assumptions:
+#   CONDA  : ~/miniconda3 or ~/anaconda3 (auto-detected)
+#   CODE   : directory containing this script's parent (d3rlpy/)
+#   ENV    : d3rlpy_dev_final_py310
+#
+# Pass --rebuild to delete and recreate the env from scratch.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$SCRIPT_DIR/.."
+ENV_NAME="d3rlpy_dev_final_py310"
+
+# --- locate conda -------------------------------------------------------
+if command -v conda &>/dev/null; then
+    CONDA_BASE="$(conda info --base 2>/dev/null)"
+elif [ -d "$HOME/miniconda3" ]; then
+    CONDA_BASE="$HOME/miniconda3"
+    source "$CONDA_BASE/etc/profile.d/conda.sh"
+elif [ -d "$HOME/anaconda3" ]; then
+    CONDA_BASE="$HOME/anaconda3"
+    source "$CONDA_BASE/etc/profile.d/conda.sh"
+else
+    echo "ERROR: conda not found. Install miniconda first." >&2
+    exit 1
+fi
+
+PYTHON="$CONDA_BASE/envs/$ENV_NAME/bin/python"
+PIP="$CONDA_BASE/envs/$ENV_NAME/bin/pip"
+
+# --- optionally rebuild -------------------------------------------------
+if [[ "${1:-}" == "--rebuild" ]]; then
+    echo "Removing existing env $ENV_NAME ..."
+    conda env remove -n "$ENV_NAME" -y 2>/dev/null || true
+fi
+
+# --- create env if missing ----------------------------------------------
+if ! conda env list | grep -q "^$ENV_NAME "; then
+    echo "Creating conda env $ENV_NAME ..."
+    conda create -n "$ENV_NAME" python=3.10 pip -y
+fi
+
+# --- install deps in safe order -----------------------------------------
+echo "Installing typing-extensions first (prevents torch downgrade) ..."
+"$PIP" install "typing-extensions>=4.8.0" --quiet
+
+echo "Installing torch ..."
+"$PIP" install "torch>=2.5.0" --quiet
+
+echo "Installing requirements ..."
+cd "$REPO_DIR"
+"$PIP" install -r requirements.txt --quiet
+"$PIP" install -r dev.requirements.txt --quiet
+"$PIP" install -e . --quiet
+
+# --- validation ---------------------------------------------------------
+echo ""
+echo "=== validating environment ==="
+
+"$PYTHON" - <<'PYCHECK'
+import sys, importlib
+
+failed = []
+checks = [
+    ("torch",                        lambda m: m.__version__),
+    ("typing_extensions",            lambda m: m.__version__),
+    ("gymnasium",                    lambda m: m.__version__),
+    ("numpy",                        lambda m: m.__version__),
+    ("pandas",                       lambda m: m.__version__),
+    ("dataclasses_json",             lambda m: "ok"),
+    ("d3rlpy",                       lambda m: "ok"),
+    ("d3rlpy.algos",                 lambda m: "ok"),
+    ("d3rlpy.algos.DiscreteBCConfig",       lambda _: "ok"),
+    ("d3rlpy.algos.DiscreteCQLConfig",      lambda _: "ok"),
+    ("d3rlpy.algos.DiscreteDecisionTransformerConfig", lambda _: "ok"),
+    ("d3rlpy.algos.DiscreteTACRConfig",     lambda _: "ok"),
+    ("d3rlpy.ope.DiscreteFQE",              lambda _: "ok"),
+    ("d3rlpy.sepsis_loader.get_sepsis",     lambda _: "ok"),
+]
+
+for dotpath, info_fn in checks:
+    parts = dotpath.rsplit(".", 1)
+    mod_path, attr = (parts[0], parts[1]) if len(parts) == 2 else (parts[0], None)
+    try:
+        m = importlib.import_module(mod_path)
+        obj = getattr(m, attr) if attr else m
+        ver = info_fn(obj)
+        print(f"  OK  {dotpath}  ({ver})")
+    except Exception as e:
+        print(f"  FAIL {dotpath}: {e}", file=sys.stderr)
+        failed.append(dotpath)
+
+if failed:
+    print(f"\nFAILED: {failed}", file=sys.stderr)
+    sys.exit(1)
+else:
+    print("\nAll checks passed.")
+PYCHECK
+
+echo ""
+echo "=== running smoke tests ==="
+cd "$REPO_DIR"
+KMP_DUPLICATE_LIB_OK=True "$PYTHON" -m pytest tests/test_smoke.py -q --no-header -p no:warnings
+
+echo ""
+echo "=== environment ready ==="
+echo "Python: $PYTHON"
+"$PYTHON" -c "import torch; print('torch:', torch.__version__)"
+echo ""
+echo "To activate: conda activate $ENV_NAME"

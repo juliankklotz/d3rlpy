@@ -6,5 +6,8 @@ dependencies:
   - python=3.10.17
   - pip
   - pip:
-    - -e .
+    - typing-extensions>=4.8.0   # must come BEFORE torch to avoid downgrade
+    - torch>=2.5.0
+    - -r requirements.txt
     - -r dev.requirements.txt
+    - -e .

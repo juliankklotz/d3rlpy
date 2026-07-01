@@ -2,7 +2,7 @@ from typing import Optional
 
 import pytest
 
-from d3rlpy.algos import TACRConfig
+from d3rlpy.algos import DiscreteTACRConfig, TACRConfig
 from d3rlpy.types import Shape
 
 from ...models.torch.model_test import DummyEncoderFactory
@@ -29,4 +29,27 @@ def test_tacr(observation_shape: Shape, scalers: Optional[str]) -> None:
     algo_tester(
         tacr,  # type: ignore
         observation_shape,
+    )
+
+
+@pytest.mark.parametrize(
+    "observation_shape", [(100,), (4, 8, 8), ((100,), (200,))]
+)
+@pytest.mark.parametrize("scalers", [None, "min_max"])
+def test_discrete_tacr(observation_shape: Shape, scalers: Optional[str]) -> None:
+    observation_scaler, _, reward_scaler = create_scaler_tuple(
+        scalers, observation_shape
+    )
+    config = DiscreteTACRConfig(
+        actor_encoder_factory=DummyEncoderFactory(),
+        critic_encoder_factory=DummyEncoderFactory(),
+        observation_scaler=observation_scaler,
+        reward_scaler=reward_scaler,
+        num_heads=4,
+    )
+    tacr = config.create()
+    algo_tester(
+        tacr,  # type: ignore
+        observation_shape,
+        action_size=10,
     )

@@ -1,0 +1,11 @@
+#!/bin/bash -eu
+# Run before every SLURM submission. Exits non-zero on any failure.
+# Usage: bash scripts/pre_cluster_check
+# Takes ~10s on CPU.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+echo "=== pre-cluster validation ==="
+KMP_DUPLICATE_LIB_OK=True pytest tests/test_smoke.py -v --no-header -p no:warnings -q
+echo "=== all checks passed — safe to submit ==="
