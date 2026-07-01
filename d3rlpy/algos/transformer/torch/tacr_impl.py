@@ -144,7 +144,7 @@ class TACRImpl(TransformerAlgoImplBase):
             action=action.view(-1, self._action_size),
             reduction="min",
         )
-        lam = self._alpha / (q_values.abs().mean()).detach()
+        lam = self._alpha / q_values.abs().mean().clamp(min=1e-8).detach()
         q_loss = lam * -q_values
         # (B, T, A) -> (B, T)
         bc_loss = ((action - batch.actions) ** 2).sum(dim=-1)
@@ -299,8 +299,8 @@ class DiscreteTACRImpl(TransformerAlgoImplBase):
         # Erwartungswert unter der Policy
         expected_q = (probs * q_all).sum(dim=-1)  # (B*T,)
 
-        # Gewichtung λ = α / E[|Q|]
-        lam = self._alpha / expected_q.abs().mean().detach()
+        # Gewichtung λ = α / E[|Q|]  — clamp to avoid div-by-zero early in training
+        lam = self._alpha / expected_q.abs().mean().clamp(min=1e-8).detach()
         q_loss = lam * -expected_q  # (B*T,)
 
         # Behavior-Cloning-Loss (CE) gegen Expert-Aktionen

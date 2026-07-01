@@ -1,11 +1,21 @@
 #!/bin/bash -eu
 # Run before every SLURM submission. Exits non-zero on any failure.
 # Usage: bash scripts/pre_cluster_check
-# Takes ~10s on CPU.
+# No conda activate needed — auto-detects the thesis env.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-echo "=== pre-cluster validation ==="
-KMP_DUPLICATE_LIB_OK=True pytest tests/test_smoke.py -v --no-header -p no:warnings -q
+# Resolve python: env var > conda env lookup > active python
+if [ -z "${PYTHON:-}" ]; then
+    ENV_NAME="d3rlpy_dev_final_py310"
+    if command -v conda &>/dev/null; then
+        ENV_PATH="$(conda env list 2>/dev/null | grep -E "^${ENV_NAME}\s" | awk '{print $NF}')"
+        [ -n "$ENV_PATH" ] && [ -f "$ENV_PATH/bin/python" ] && PYTHON="$ENV_PATH/bin/python"
+    fi
+    PYTHON="${PYTHON:-$(which python)}"
+fi
+
+echo "=== pre-cluster validation (python: $PYTHON) ==="
+KMP_DUPLICATE_LIB_OK=True "$PYTHON" -m pytest tests/test_smoke.py -v --no-header -p no:warnings -q
 echo "=== all checks passed — safe to submit ==="
