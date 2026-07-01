@@ -2,10 +2,8 @@
 # Create or rebuild the thesis conda environment on any machine (local or cluster).
 # Usage: bash scripts/cluster_env_setup [--rebuild]
 #
-# Cluster path assumptions:
-#   CONDA  : ~/miniconda3 or ~/anaconda3 (auto-detected)
-#   CODE   : directory containing this script's parent (d3rlpy/)
-#   ENV    : d3rlpy_dev_final_py310
+# Works with both personal miniconda (~/) and shared system conda (/opt/...).
+# User envs on shared systems go to ~/.conda/envs/ — this is handled automatically.
 #
 # Pass --rebuild to delete and recreate the env from scratch.
 
@@ -14,21 +12,16 @@ REPO_DIR="$SCRIPT_DIR/.."
 ENV_NAME="d3rlpy_dev_final_py310"
 
 # --- locate conda -------------------------------------------------------
-if command -v conda &>/dev/null; then
-    CONDA_BASE="$(conda info --base 2>/dev/null)"
-elif [ -d "$HOME/miniconda3" ]; then
-    CONDA_BASE="$HOME/miniconda3"
-    source "$CONDA_BASE/etc/profile.d/conda.sh"
-elif [ -d "$HOME/anaconda3" ]; then
-    CONDA_BASE="$HOME/anaconda3"
-    source "$CONDA_BASE/etc/profile.d/conda.sh"
-else
-    echo "ERROR: conda not found. Install miniconda first." >&2
-    exit 1
+if ! command -v conda &>/dev/null; then
+    # Try common locations
+    for candidate in "$HOME/miniconda3" "$HOME/anaconda3" "/opt/sw/conda/miniconda3-24.1.2"; do
+        if [ -f "$candidate/etc/profile.d/conda.sh" ]; then
+            source "$candidate/etc/profile.d/conda.sh"
+            break
+        fi
+    done
 fi
-
-PYTHON="$CONDA_BASE/envs/$ENV_NAME/bin/python"
-PIP="$CONDA_BASE/envs/$ENV_NAME/bin/pip"
+command -v conda &>/dev/null || { echo "ERROR: conda not found" >&2; exit 1; }
 
 # --- optionally rebuild -------------------------------------------------
 if [[ "${1:-}" == "--rebuild" ]]; then
@@ -37,12 +30,26 @@ if [[ "${1:-}" == "--rebuild" ]]; then
 fi
 
 # --- create env if missing ----------------------------------------------
-if ! conda env list | grep -q "^$ENV_NAME "; then
+if ! conda env list | grep -qE "^${ENV_NAME}\s"; then
     echo "Creating conda env $ENV_NAME ..."
     conda create -n "$ENV_NAME" python=3.10 pip -y
 fi
 
+# --- find actual env path (handles shared conda where envs go to ~/.conda) ---
+ENV_PATH="$(conda env list | grep -E "^${ENV_NAME}\s" | awk '{print $NF}')"
+if [ -z "$ENV_PATH" ]; then
+    echo "ERROR: env $ENV_NAME not found after creation" >&2
+    exit 1
+fi
+PYTHON="$ENV_PATH/bin/python"
+PIP="$ENV_PATH/bin/pip"
+echo "Env path:  $ENV_PATH"
+echo "Python:    $PYTHON"
+
 # --- install deps in safe order -----------------------------------------
+# typing-extensions MUST be installed before requirements.txt is processed
+# because requirements.txt used to pin it to 3.7.x which breaks torch 2.5+
+echo ""
 echo "Installing typing-extensions first (prevents torch downgrade) ..."
 "$PIP" install "typing-extensions>=4.8.0" --quiet
 
@@ -60,24 +67,22 @@ echo ""
 echo "=== validating environment ==="
 
 "$PYTHON" - <<'PYCHECK'
-import sys, importlib
+import sys, importlib, importlib.metadata
 
 failed = []
 checks = [
-    ("torch",                        lambda m: m.__version__),
-    ("typing_extensions",            lambda m: m.__version__),
-    ("gymnasium",                    lambda m: m.__version__),
-    ("numpy",                        lambda m: m.__version__),
-    ("pandas",                       lambda m: m.__version__),
-    ("dataclasses_json",             lambda m: "ok"),
-    ("d3rlpy",                       lambda m: "ok"),
-    ("d3rlpy.algos",                 lambda m: "ok"),
-    ("d3rlpy.algos.DiscreteBCConfig",       lambda _: "ok"),
-    ("d3rlpy.algos.DiscreteCQLConfig",      lambda _: "ok"),
+    ("torch",                                          lambda m: m.__version__),
+    ("gymnasium",                                      lambda m: m.__version__),
+    ("numpy",                                          lambda m: m.__version__),
+    ("pandas",                                         lambda m: m.__version__),
+    ("dataclasses_json",                               lambda m: "ok"),
+    ("d3rlpy",                                         lambda m: "ok"),
+    ("d3rlpy.algos.DiscreteBCConfig",                  lambda _: "ok"),
+    ("d3rlpy.algos.DiscreteCQLConfig",                 lambda _: "ok"),
     ("d3rlpy.algos.DiscreteDecisionTransformerConfig", lambda _: "ok"),
-    ("d3rlpy.algos.DiscreteTACRConfig",     lambda _: "ok"),
-    ("d3rlpy.ope.DiscreteFQE",              lambda _: "ok"),
-    ("d3rlpy.sepsis_loader.get_sepsis",     lambda _: "ok"),
+    ("d3rlpy.algos.DiscreteTACRConfig",                lambda _: "ok"),
+    ("d3rlpy.ope.DiscreteFQE",                         lambda _: "ok"),
+    ("d3rlpy.sepsis_loader.get_sepsis",                lambda _: "ok"),
 ]
 
 for dotpath, info_fn in checks:
@@ -92,11 +97,23 @@ for dotpath, info_fn in checks:
         print(f"  FAIL {dotpath}: {e}", file=sys.stderr)
         failed.append(dotpath)
 
+# Check typing_extensions version via metadata (module may lack __version__)
+try:
+    te_ver = importlib.metadata.version("typing_extensions")
+    te_tuple = tuple(int(x) for x in te_ver.split(".")[:2])
+    if te_tuple < (4, 8):
+        print(f"  FAIL typing_extensions=={te_ver} < 4.8.0 (torch will break)", file=sys.stderr)
+        failed.append("typing_extensions")
+    else:
+        print(f"  OK  typing_extensions  ({te_ver})")
+except Exception as e:
+    print(f"  FAIL typing_extensions not installed: {e}", file=sys.stderr)
+    failed.append("typing_extensions")
+
 if failed:
     print(f"\nFAILED: {failed}", file=sys.stderr)
     sys.exit(1)
-else:
-    print("\nAll checks passed.")
+print("\nAll import checks passed.")
 PYCHECK
 
 echo ""
@@ -109,4 +126,5 @@ echo "=== environment ready ==="
 echo "Python: $PYTHON"
 "$PYTHON" -c "import torch; print('torch:', torch.__version__)"
 echo ""
-echo "To activate: conda activate $ENV_NAME"
+echo "To use in SLURM scripts, set:"
+echo "  PYTHON=\"$PYTHON\""

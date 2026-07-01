@@ -1,34 +1,54 @@
 #!/bin/bash -eu
-# Minimal validation to embed at the top of every SLURM job.
-# Catches broken envs before wasting GPU hours.
-# Usage: source scripts/cluster_validate  (or bash scripts/cluster_validate)
+# Lightweight pre-flight check for SLURM jobs.
+# Exits non-zero immediately if env is broken — catches issues before GPU time is wasted.
+#
+# Usage:
+#   bash scripts/cluster_validate                   # auto-detects python
+#   PYTHON=/path/to/python bash scripts/cluster_validate
 
-PYTHON="${PYTHON:-$(which python)}"
+# --- resolve python -------------------------------------------------------
+if [ -z "${PYTHON:-}" ]; then
+    ENV_NAME="d3rlpy_dev_final_py310"
+    # Find env path via conda if available, else fall back to PATH
+    if command -v conda &>/dev/null; then
+        ENV_PATH="$(conda env list 2>/dev/null | grep -E "^${ENV_NAME}\s" | awk '{print $NF}')"
+        if [ -n "$ENV_PATH" ] && [ -f "$ENV_PATH/bin/python" ]; then
+            PYTHON="$ENV_PATH/bin/python"
+        fi
+    fi
+    # Final fallback
+    PYTHON="${PYTHON:-$(which python)}"
+fi
 
 echo "[validate] Python: $PYTHON"
 
 "$PYTHON" - <<'PYCHECK'
-import sys
+import sys, importlib, importlib.metadata
 
-checks = [
-    "torch", "typing_extensions", "gymnasium",
+REQUIRED = [
+    "torch", "gymnasium", "numpy", "dataclasses_json",
     "d3rlpy", "d3rlpy.algos", "d3rlpy.ope",
 ]
-for mod in checks:
+
+for mod in REQUIRED:
     try:
-        __import__(mod)
+        importlib.import_module(mod)
     except ImportError as e:
         print(f"[validate] FAILED import {mod}: {e}", file=sys.stderr)
         sys.exit(1)
 
-import torch
-import importlib.metadata
-te_ver_str = importlib.metadata.version("typing_extensions")
-te_version = tuple(int(x) for x in te_ver_str.split(".")[:2])
-if te_version < (4, 8):
-    print(f"[validate] typing_extensions too old: {te_ver_str} < 4.8 (torch will fail)", file=sys.stderr)
+# typing_extensions >= 4.8.0 required for torch 2.5+
+try:
+    te_ver = importlib.metadata.version("typing_extensions")
+    te_tuple = tuple(int(x) for x in te_ver.split(".")[:2])
+    if te_tuple < (4, 8):
+        print(f"[validate] FAILED typing_extensions=={te_ver} < 4.8.0 (torch will fail)", file=sys.stderr)
+        sys.exit(1)
+except importlib.metadata.PackageNotFoundError:
+    print("[validate] FAILED typing_extensions not installed", file=sys.stderr)
     sys.exit(1)
 
-print(f"[validate] torch={torch.__version__}  typing_extensions={te_ver_str}")
+import torch
+print(f"[validate] torch={torch.__version__}  typing_extensions={te_ver}")
 print("[validate] imports OK")
 PYCHECK
