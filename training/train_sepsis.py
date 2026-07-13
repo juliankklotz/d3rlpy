@@ -143,8 +143,8 @@ def main() -> None:
     parser.add_argument("--data_dir", default=None,
                         help="Path to MIMIC-IV sepsis CSV (default: $SEPSIS_DATA_DIR)")
     parser.add_argument("--reward_mode", default="terminal",
-                        choices=["terminal", "dense"],
-                        help="terminal: ±1 survival/death; dense: -SOFA each step")
+                        choices=["terminal", "dense", "mixed"],
+                        help="terminal: ±1 survival/death; dense: -SOFA each step; mixed: 0.5*SOFA-delta + ±15 terminal")
     parser.add_argument("--n_steps", type=int, default=N_STEPS)
     parser.add_argument("--skip_fqe", action="store_true",
                         help="Skip FQE eval (faster, use for debugging)")

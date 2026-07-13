@@ -15,15 +15,17 @@ from ..optimizers.optimizers import OptimizerFactory, make_optimizer_field
 from ..types import NDArray, Observation, Shape
 from .torch.fqe_impl import (
     DiscreteFQEImpl,
+    DiscreteFQETrajectoryImpl,
     FQEBaseImpl,
     FQEBaseModules,
     FQEImpl,
     FQETrajectoryBaseImpl,
     FQETrajectoryImpl,
     dt_predict_next_actions,
+    dt_predict_next_action_probs,
 )
 
-__all__ = ["FQEConfig", "FQE", "DiscreteFQE","FQETrajectory"]
+__all__ = ["FQEConfig", "FQE", "DiscreteFQE","FQETrajectory","DiscreteFQETrajectory"]
 
 
 @dataclasses.dataclass()
@@ -64,6 +66,13 @@ class FQEConfig(LearnableConfig):
             Observation preprocessor.
         action_scaler (d3rlpy.preprocessing.ActionScaler): Action preprocessor.
         reward_scaler (d3rlpy.preprocessing.RewardScaler): Reward preprocessor.
+        target_return (Optional[float]): Fixed return-to-go used to query a
+            Transformer policy (DecisionTransformer/TACR) during FQE bootstrap
+            target computation. If ``None`` (default), the trajectory's own
+            logged return-to-go is used instead, i.e. FQE replays the
+            behaviour policy's actual future return rather than evaluating
+            the policy under a fixed deployment-time target. Only consumed
+            by ``FQETrajectory``; ignored by ``FQE``/``DiscreteFQE``.
     """
 
     learning_rate: float = 1e-4
@@ -74,6 +83,7 @@ class FQEConfig(LearnableConfig):
     gamma: float = 0.99
     n_critics: int = 1
     target_update_interval: int = 100
+    target_return: Optional[float] = None
 
     def create(
         self, device: DeviceArg = False, enable_ddp: bool = False
@@ -302,11 +312,70 @@ class FQETrajectory(_FQEBaseTrajectory):
             targ_q_func_forwarder=targ_q_func_forwarder,
             gamma=self._config.gamma,
             target_update_interval=self._config.target_update_interval,
+            target_return=self._config.target_return,
             device=self._device,
         )
 
     def get_action_type(self) -> ActionSpace:
         return ActionSpace.CONTINUOUS
+
+
+class DiscreteFQETrajectory(_FQEBaseTrajectory):
+    r"""Fitted Q Evaluation for trajectory-based discrete policies (DT/TACR).
+
+    Uses expected-SARSA bootstrap with the policy's action probabilities.
+    """
+
+    def inner_create_impl(
+        self, observation_shape: Shape, action_size: int
+    ) -> None:
+        assert self._algo.impl, "The target algorithm is not initialized."
+
+        q_funcs, q_func_forwarder = create_discrete_q_function(
+            observation_shape,
+            action_size,
+            self._config.encoder_factory,
+            self._config.q_func_factory,
+            n_ensembles=self._config.n_critics,
+            device=self._device,
+            enable_ddp=self._enable_ddp,
+        )
+        targ_q_funcs, targ_q_func_forwarder = create_discrete_q_function(
+            observation_shape,
+            action_size,
+            self._config.encoder_factory,
+            self._config.q_func_factory,
+            n_ensembles=self._config.n_critics,
+            device=self._device,
+            enable_ddp=self._enable_ddp,
+        )
+        optim = self._config.optim_factory.create(
+            q_funcs.named_modules(),
+            lr=self._config.learning_rate,
+            compiled=False,
+        )
+
+        modules = FQEBaseModules(
+            q_funcs=q_funcs,
+            targ_q_funcs=targ_q_funcs,
+            optim=optim,
+        )
+
+        self._impl = DiscreteFQETrajectoryImpl(
+            observation_shape=observation_shape,
+            action_size=action_size,
+            algo=self._algo.impl,
+            modules=modules,
+            q_func_forwarder=q_func_forwarder,
+            targ_q_func_forwarder=targ_q_func_forwarder,
+            gamma=self._config.gamma,
+            target_update_interval=self._config.target_update_interval,
+            target_return=self._config.target_return,
+            device=self._device,
+        )
+
+    def get_action_type(self) -> ActionSpace:
+        return ActionSpace.DISCRETE
 
 
 class DiscreteFQE(_FQEBase):

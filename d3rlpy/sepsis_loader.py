@@ -340,8 +340,9 @@ def get_sepsis(
         data_dir: Directory with mimic_dataset.csv and sepsis_cohort.csv.
                   Falls back to SEPSIS_DATA_DIR env var, then <repo>/data/.
         action_space: DISCRETE (25 actions) or CONTINUOUS (2D).
-        reward_mode: "terminal" (+1 survival / -1 death at last timestep, 0 elsewhere)
-                     or "dense" (negative SOFA score each step: lower severity = higher reward).
+        reward_mode: "terminal" (+1 survival / -1 death at last timestep, 0 elsewhere),
+                     "dense" (negative SOFA score each step: lower severity = higher reward),
+                     or "mixed" (α=0.5 × SOFA-change + terminal ±15).
         transition_picker: Override for transition sampling.
         trajectory_slicer: Override for trajectory sampling.
 
@@ -352,8 +353,8 @@ def get_sepsis(
         FileNotFoundError: If CSV files are not found.
         ValueError: If reward_mode is invalid.
     """
-    if reward_mode not in ("terminal", "dense"):
-        raise ValueError(f"reward_mode must be 'terminal' or 'dense', got {reward_mode!r}")
+    if reward_mode not in ("terminal", "dense", "mixed"):
+        raise ValueError(f"reward_mode must be 'terminal', 'dense', or 'mixed', got {reward_mode!r}")
 
     # Determine data directory
     if data_dir is None:
@@ -407,16 +408,41 @@ def get_sepsis(
         sepsis_df.loc[last_step_mask & (sepsis_df[outcome_col] == 0), "_reward"] = 1.0
         sepsis_df.loc[last_step_mask & (sepsis_df[outcome_col] == 1), "_reward"] = -1.0
         reward_col = "_reward"
-    else:
+    elif reward_mode == "dense":
         # Dense: negative SOFA so lower severity → higher reward
         sepsis_df["_reward"] = -sepsis_df["SOFA"].astype(np.float32)
         reward_col = "_reward"
+    else:  # "mixed"
+        # Mixed: α=0.5 * SOFA-delta + terminal ±15
+        # Compute SOFA delta within each ICU stay (SOFA_t - SOFA_{t+1})
+        sepsis_df["SOFA_next"] = sepsis_df.groupby("icustayid")["SOFA"].shift(-1)
+        sepsis_df["SOFA_delta"] = sepsis_df["SOFA"] - sepsis_df["SOFA_next"]
+
+        # All timesteps get SOFA-delta reward (0.5 * delta)
+        # Last timestep (NaN delta) gets only terminal ±15
+        sepsis_df["_reward"] = 0.5 * sepsis_df["SOFA_delta"].fillna(0.0)
+
+        # Add terminal component at last step
+        last_step_mask = ~sepsis_df.duplicated(subset=["icustayid"], keep="last")
+        sepsis_df.loc[last_step_mask & (sepsis_df[outcome_col] == 0), "_reward"] += 15.0
+        sepsis_df.loc[last_step_mask & (sepsis_df[outcome_col] == 1), "_reward"] -= 15.0
+
+        sepsis_df = sepsis_df.drop(columns=["SOFA_next", "SOFA_delta"])
+        reward_col = "_reward"
+
+    # Ensure no NaN rewards (can occur from padding)
+    sepsis_df["_reward"] = sepsis_df["_reward"].fillna(0.0).astype(np.float32)
 
     required_cols = (
         OBSERVATION_COLUMNS + action_cols
         + [reward_col, outcome_col, "timestep_dt", "timestep", "icustayid"]
     )
     filtered_df = sepsis_df[[c for c in required_cols if c in sepsis_df.columns]].copy()
+
+    # Double-check: no NaN in reward column before conversion
+    if filtered_df[reward_col].isna().any():
+        print(f"WARNING: {filtered_df[reward_col].isna().sum()} NaN values in reward column. Filling with 0.")
+        filtered_df[reward_col] = filtered_df[reward_col].fillna(0.0)
 
     print("Padding to regular 4-hour grid...")
     padded_df = _pad_to_regular_grid(
@@ -425,6 +451,9 @@ def get_sepsis(
         action_cols=action_cols,
         ffill_cols=OBSERVATION_COLUMNS,
     )
+
+    # Padding may introduce NaN in reward column; fill with 0
+    padded_df[reward_col] = padded_df[reward_col].fillna(0.0)
 
     if action_space == ActionSpace.DISCRETE:
         print("Discretizing actions to 25 bins (5x5 grid)...")

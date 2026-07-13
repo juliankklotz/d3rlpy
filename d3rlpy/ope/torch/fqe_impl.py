@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Union, Tuple, Literal
+from typing import Optional, Union, Tuple, Literal
 
 
 import torch
@@ -19,12 +19,13 @@ from ...optimizers import OptimizerWrapper
 from ...torch_utility import Modules, TorchMiniBatch, TorchTrajectoryMiniBatch, hard_sync
 from ...types import Shape
 
-__all__ = ["FQEBaseImpl", "FQEImpl", "DiscreteFQEImpl", "FQEBaseModules","FQETrajectoryBaseImpl","FQETrajectoryImpl","dt_predict_next_actions"]
+__all__ = ["FQEBaseImpl", "FQEImpl", "DiscreteFQEImpl", "FQEBaseModules","FQETrajectoryBaseImpl","FQETrajectoryImpl","DiscreteFQETrajectoryImpl","dt_predict_next_actions","dt_predict_next_action_probs"]
 
 
 def dt_predict_next_actions(
-    algo: TransformerAlgoImplBase,                                   # 
+    algo: TransformerAlgoImplBase,                                   #
     traj: TorchTrajectoryMiniBatch,
+    target_rtg: Optional[float] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Strictly-causal next-action prediction for FQE with a Decision Transformer.
@@ -45,6 +46,11 @@ def dt_predict_next_actions(
               returns_to_go:(B, L, 1) or (B, L)
               timesteps:    (B, L, 1) or (B, L)
               masks:        (B, L) or (B, L, 1) with 1=valid, 0=pad
+        target_rtg: If given, overrides the RTG channel with this constant
+            value at every timestep instead of using the trajectory's own
+            logged return-to-go. This evaluates the policy as it would behave
+            if told to aim for a fixed deployment-time target, rather than
+            replaying the behaviour policy's actual future return.
 
     Returns:
         preds:        (B, L, A) predictions, zeroed on padded steps, contiguous
@@ -60,12 +66,16 @@ def dt_predict_next_actions(
     steps = traj.timesteps
     masks = traj.masks  # 1=valid, 0=pad
 
+    if target_rtg is not None:
+        rtg = torch.full_like(rtg, float(target_rtg))
+
     # Build pad mask as used in training (1=pad, 0=keep)
     pad_mask = 1 - masks
 
     # Forward pass (teacher forcing) — underlying GPT-style model is causal.
+    # DiscreteDecisionTransformer returns (probs, logits); use logits for predictions
     with torch.no_grad():
-        preds = transformer(obs, acts, rtg, steps, pad_mask)  # (B, L, A)
+        _, preds = transformer(obs, acts, rtg, steps, pad_mask)  # (B, L, A)
 
     # Harmonize mask shapes
     if masks.dim() == 3 and masks.size(-1) == 1:
@@ -101,6 +111,68 @@ def dt_predict_next_actions(
     next_actions = preds_next.reshape(B * (L - 1), preds_next.size(-1)).contiguous()
 
     return preds, next_actions
+
+def dt_predict_next_action_probs(
+    algo: TransformerAlgoImplBase,
+    traj: TorchTrajectoryMiniBatch,
+    target_rtg: Optional[float] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Softmax action probabilities for FQE expected-Q bootstrap with discrete DT.
+
+    Returns the policy's probability distribution over next-state actions,
+    for use in expected-SARSA-style bootstrap: y = r + γ·Σ_a' π(a'|s')·Q(s',a').
+
+    Args:
+        algo: d3rlpy DiscreteDecisionTransformer impl
+        traj: TorchTrajectoryMiniBatch
+        target_rtg: Optional fixed RTG override
+
+    Returns:
+        preds_probs: (B, L, A) softmax probabilities, zeroed on padded steps
+        next_action_probs: (B*(L-1), A) flattened probabilities, aligned with to_transition_batch()
+    """
+    impl = algo
+    transformer = impl._modules.transformer
+
+    obs   = traj.observations
+    acts  = traj.actions
+    rtg   = traj.returns_to_go
+    steps = traj.timesteps
+    masks = traj.masks
+
+    if target_rtg is not None:
+        rtg = torch.full_like(rtg, float(target_rtg))
+
+    pad_mask = 1 - masks
+
+    with torch.no_grad():
+        probs, _ = transformer(obs, acts, rtg, steps, pad_mask)  # (B, L, A), already softmax
+
+    # Harmonize mask shapes
+    if masks.dim() == 3 and masks.size(-1) == 1:
+        mask2d = masks.squeeze(-1)
+        mask3d = masks
+    elif masks.dim() == 2:
+        mask2d = masks
+        mask3d = masks.unsqueeze(-1)
+    else:
+        raise ValueError("traj.masks must have shape (B, L) or (B, L, 1).")
+
+    # Zero out padded probabilities
+    preds_probs = (probs * mask3d).contiguous()  # (B, L, A)
+
+    # Build next-action probabilities aligned with to_transition_batch()
+    B, L = mask2d.shape
+    probs_next = preds_probs[:, 1:, :]  # (B, L-1, A)
+
+    mask2d_bool = mask2d.to(torch.bool)
+    pair_keep = (mask2d_bool[:, :-1] & mask2d_bool[:, 1:]).unsqueeze(-1)  # (B, L-1, 1)
+
+    probs_next = probs_next * pair_keep.to(probs_next.dtype)
+    next_action_probs = probs_next.reshape(B * (L - 1), probs_next.size(-1)).contiguous()
+
+    return preds_probs, next_action_probs
 
 @torch.no_grad()
 def dt_predict_autoreg(
@@ -431,6 +503,7 @@ class FQETrajectoryBaseImpl(QLearningAlgoImplBase):
         DiscreteEnsembleQFunctionForwarder, ContinuousEnsembleQFunctionForwarder
     ]
     _target_update_interval: int
+    _target_return: Optional[float]
 
     def __init__(
         self,
@@ -449,6 +522,7 @@ class FQETrajectoryBaseImpl(QLearningAlgoImplBase):
         gamma: float,
         target_update_interval: int,
         device: str,
+        target_return: Optional[float] = None,
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -461,6 +535,7 @@ class FQETrajectoryBaseImpl(QLearningAlgoImplBase):
         self._q_func_forwarder = q_func_forwarder
         self._targ_q_func_forwarder = targ_q_func_forwarder
         self._target_update_interval = target_update_interval
+        self._target_return = target_return
         hard_sync(modules.targ_q_funcs, modules.q_funcs)
 
     def compute_loss(
@@ -507,7 +582,9 @@ class FQETrajectoryBaseImpl(QLearningAlgoImplBase):
 
             ### TODO get next actions with a function like this
             
-            preds, next_actions = dt_predict_next_actions(self._algo,batch)
+            preds, next_actions = dt_predict_next_actions(
+                self._algo, batch, target_rtg=self._target_return
+            )
 
             torch_transition_batch, _ = batch.to_transition_batch() # also outputs masks
 
@@ -530,6 +607,45 @@ class FQETrajectoryImpl(ContinuousQFunctionMixin, FQETrajectoryBaseImpl):
     _targ_q_func_forwarder: DiscreteEnsembleQFunctionForwarder
 
 
+class DiscreteFQETrajectoryImpl(DiscreteQFunctionMixin, FQETrajectoryBaseImpl):
+    _q_func_forwarder: ContinuousEnsembleQFunctionForwarder
+    _targ_q_func_forwarder: ContinuousEnsembleQFunctionForwarder
+
+    def inner_update(self, batch: Union[TorchMiniBatch, TorchTrajectoryMiniBatch], grad_step: int) -> dict[str, float]:
+        if isinstance(batch, TorchMiniBatch):
+            # Default FQE behavior
+            next_actions = self._algo.predict_best_action(batch.next_observations)
+            q_tpn = self.compute_target(batch, next_actions)
+            loss = self.compute_loss(batch, q_tpn)
+
+        elif isinstance(batch, TorchTrajectoryMiniBatch):
+            # Trajectory: query DT's action probabilities for expected-SARSA bootstrap
+            _, next_action_probs = dt_predict_next_action_probs(
+                self._algo, batch, target_rtg=self._target_return
+            )
+
+            torch_transition_batch, _ = batch.to_transition_batch()
+
+            # Expected Q under policy: Σ_a' π(a'|s') · Q(s', a')
+            B = next_action_probs.shape[0]
+            next_obs = torch_transition_batch.next_observations
+            q_next_all = self._targ_q_func_forwarder.compute_target(
+                next_obs, torch.arange(self.action_size, device=self.device)
+            )  # (B, A)
+            expected_q = (next_action_probs * q_next_all).sum(dim=-1, keepdim=True)  # (B, 1)
+
+            q_tpn = torch_transition_batch.rewards + self._gamma**torch_transition_batch.intervals * expected_q
+
+            loss = self.compute_loss(torch_transition_batch, q_tpn)
+
+        self._modules.optim.zero_grad()
+        loss.backward()
+        self._modules.optim.step()
+
+        if grad_step % self._target_update_interval == 0:
+            self.update_target()
+
+        return {"loss": float(loss.cpu().detach().numpy())}
 
 
 

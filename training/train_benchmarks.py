@@ -51,7 +51,25 @@ HPARAMS = {
             actor_learning_rate=1e-4, max_timestep=27_000,
             position_encoding_type=d3rlpy.PositionEncodingType.SIMPLE,
             compile_graph=False,
-            # alpha=0.5 is fine; alpha normalizer clamped in tacr_impl
+        ),
+    },
+    "pong_minari": {
+        # minari atari/pong/expert-v0 + FrameStack(4) → obs [12, 210, 160]
+        # Smaller batch/context than pong to fit in GPU memory.
+        "target_return": 20,
+        "n_steps": 500_000,
+        "n_steps_per_epoch": 5_000,
+        "discrete_bc": dict(batch_size=16, learning_rate=1e-3),
+        "discrete_cql": dict(batch_size=16),
+        "discrete_dt": dict(
+            batch_size=16, context_size=10, num_heads=4, num_layers=6,
+            max_timestep=27_000,
+        ),
+        "discrete_tacr": dict(
+            batch_size=16, context_size=10, num_heads=4, num_layers=6,
+            actor_learning_rate=1e-4, max_timestep=27_000,
+            position_encoding_type=d3rlpy.PositionEncodingType.SIMPLE,
+            compile_graph=False,
         ),
     },
 }
@@ -71,17 +89,12 @@ def _actor_encoder(dataset_name: str) -> object:
     return d3rlpy.models.VectorEncoderFactory([128], exclude_last_activation=True)
 
 
-def _hparam_key(dataset_name: str) -> str:
-    # pong_minari uses the same HPs as pong
-    return "pong" if dataset_name == "pong_minari" else dataset_name
-
-
 def _warmup_steps(dataset_name: str) -> int:
-    return HPARAMS[_hparam_key(dataset_name)]["n_steps"] // 100
+    return HPARAMS[dataset_name]["n_steps"] // 100
 
 
 def build_algo(algo_name: str, dataset_name: str, device: str) -> d3rlpy.base.LearnableBase:
-    hp = HPARAMS[_hparam_key(dataset_name)][algo_name]
+    hp = HPARAMS[dataset_name][algo_name]
     obs_scaler: object
     if dataset_name in PONG_DATASETS:
         obs_scaler = d3rlpy.preprocessing.PixelObservationScaler()
@@ -178,7 +191,7 @@ def main() -> None:
 
     algo = build_algo(args.algo, args.dataset, args.device)
 
-    hp = HPARAMS[_hparam_key(args.dataset)]
+    hp = HPARAMS[args.dataset]
     n_steps = args.n_steps or hp["n_steps"]
     experiment_name = args.logdir or f"{args.algo}_{args.dataset}_seed{args.seed}"
 

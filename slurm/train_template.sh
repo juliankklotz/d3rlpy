@@ -31,6 +31,7 @@ PYTHON="$PYTHON" bash "$REPO_DIR/scripts/cluster_validate" || {
 mkdir -p logs
 echo "Starting: algo={ALGO}  dataset={DATASET}  seed={SEED}"
 echo "Python:   $PYTHON  ($(hostname))"
+echo "Args:     ${SLURM_ARGS:-none}"
 
 case "{DATASET}" in
     cartpole|pong)
@@ -49,6 +50,7 @@ esac
     --algo {ALGO} \
     --dataset {DATASET} \
     --seed {SEED} \
-    --device cuda:0
+    --device cuda:0 \
+    ${SLURM_ARGS:-}
 
 echo "Done."
