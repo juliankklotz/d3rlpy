@@ -608,8 +608,30 @@ class FQETrajectoryImpl(ContinuousQFunctionMixin, FQETrajectoryBaseImpl):
 
 
 class DiscreteFQETrajectoryImpl(DiscreteQFunctionMixin, FQETrajectoryBaseImpl):
-    _q_func_forwarder: ContinuousEnsembleQFunctionForwarder
-    _targ_q_func_forwarder: ContinuousEnsembleQFunctionForwarder
+    _q_func_forwarder: DiscreteEnsembleQFunctionForwarder
+    _targ_q_func_forwarder: DiscreteEnsembleQFunctionForwarder
+
+    def compute_loss(
+        self,
+        batch: TorchMiniBatch,
+        q_tpn: torch.Tensor,
+    ) -> torch.Tensor:
+        return self._q_func_forwarder.compute_error(
+            observations=batch.observations,
+            actions=batch.actions.long(),
+            rewards=batch.rewards,
+            target=q_tpn,
+            terminals=batch.terminals,
+            gamma=self._gamma**batch.intervals,
+        )
+
+    def compute_target(
+        self, batch: TorchMiniBatch, next_actions: torch.Tensor
+    ) -> torch.Tensor:
+        with torch.no_grad():
+            return self._targ_q_func_forwarder.compute_target(
+                batch.next_observations, next_actions.long()
+            )
 
     def inner_update(self, batch: Union[TorchMiniBatch, TorchTrajectoryMiniBatch], grad_step: int) -> dict[str, float]:
         if isinstance(batch, TorchMiniBatch):
@@ -627,11 +649,10 @@ class DiscreteFQETrajectoryImpl(DiscreteQFunctionMixin, FQETrajectoryBaseImpl):
             torch_transition_batch, _ = batch.to_transition_batch()
 
             # Expected Q under policy: Σ_a' π(a'|s') · Q(s', a')
-            B = next_action_probs.shape[0]
             next_obs = torch_transition_batch.next_observations
             q_next_all = self._targ_q_func_forwarder.compute_target(
-                next_obs, torch.arange(self.action_size, device=self.device)
-            )  # (B, A)
+                next_obs, action=None
+            )  # (B, A), action=None returns full Q-value vector per action
             expected_q = (next_action_probs * q_next_all).sum(dim=-1, keepdim=True)  # (B, 1)
 
             q_tpn = torch_transition_batch.rewards + self._gamma**torch_transition_batch.intervals * expected_q
