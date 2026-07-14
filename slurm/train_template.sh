@@ -1,11 +1,25 @@
 #!/bin/bash
-#SBATCH --job-name={ALGO}_{DATASET}
 #SBATCH --partition=zen3_0512_a100x2
 #SBATCH --qos=zen3_0512_a100x2
 #SBATCH --gres=gpu:1
 #SBATCH --time=12:00:00
-#SBATCH --output=logs/{ALGO}_{DATASET}_seed{SEED}_%j.out
-#SBATCH --error=logs/{ALGO}_{DATASET}_seed{SEED}_%j.err
+#SBATCH --output=logs/%x_seed%A_%j.out
+#SBATCH --error=logs/%x_seed%A_%j.err
+
+# Positional args (passed via `sbatch train_template.sh ALGO DATASET SEED [FOLD]`):
+#   $1 = ALGO      (discrete_bc, discrete_cql, discrete_dt, discrete_tacr)
+#   $2 = DATASET   (cartpole, pong, sepsis)
+#   $3 = SEED      (0, 1, 2, ...)
+#   $4 = FOLD      (0-4, sepsis only, default 0)
+ALGO="$1"
+DATASET="$2"
+SEED="$3"
+FOLD="${4:-0}"
+
+if [ -z "$ALGO" ] || [ -z "$DATASET" ] || [ -z "$SEED" ]; then
+    echo "ERROR: usage: sbatch train_template.sh ALGO DATASET SEED [FOLD]" >&2
+    exit 1
+fi
 
 # ── hardcoded python path (update if env recreated) ──────────────────────────
 PYTHON="/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/bin/python"
@@ -29,28 +43,30 @@ PYTHON="$PYTHON" bash "$REPO_DIR/scripts/cluster_validate" || {
 
 # ── training ──────────────────────────────────────────────────────────────────
 mkdir -p logs
-echo "Starting: algo={ALGO}  dataset={DATASET}  seed={SEED}"
+echo "Starting: algo=$ALGO  dataset=$DATASET  seed=$SEED  fold=$FOLD"
 echo "Python:   $PYTHON  ($(hostname))"
 echo "Args:     ${SLURM_ARGS:-none}"
 
-case "{DATASET}" in
+case "$DATASET" in
     cartpole|pong)
         SCRIPT="$REPO_DIR/training/train_benchmarks.py"
+        EXTRA_ARGS="--dataset $DATASET"
         ;;
     sepsis)
         SCRIPT="$REPO_DIR/training/train_sepsis.py"
+        EXTRA_ARGS="--fold $FOLD"
         ;;
     *)
-        echo "ERROR: unknown dataset {DATASET}" >&2
+        echo "ERROR: unknown dataset $DATASET" >&2
         exit 1
         ;;
 esac
 
 "$PYTHON" "$SCRIPT" \
-    --algo {ALGO} \
-    --dataset {DATASET} \
-    --seed {SEED} \
+    --algo "$ALGO" \
+    --seed "$SEED" \
     --device cuda:0 \
+    $EXTRA_ARGS \
     ${SLURM_ARGS:-}
 
 echo "Done."
