@@ -7,6 +7,11 @@
 #
 # Or dry-run (show commands without submitting):
 #   DRY_RUN=1 bash slurm/submit_all_jobs.sh
+#
+# Sepsis jobs are gated behind SKIP_SEPSIS (default: skip) until FQE timing/cost
+# is confirmed from the single TACR sanity-check job. To include them:
+#   SKIP_SEPSIS=0 bash slurm/submit_all_jobs.sh
+SKIP_SEPSIS="${SKIP_SEPSIS:-1}"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SLURM_DIR="$REPO_DIR/slurm"
@@ -56,37 +61,41 @@ for ALGO in "${ALGOS[@]}"; do
     done
 done
 
-# ── Sepsis (terminal, fold 0 only — CV sweep not yet enabled) ─────────────────
-echo "Submitting Sepsis (terminal reward) jobs..."
-for ALGO in "${ALGOS[@]}"; do
-    for SEED in "${SEEDS[@]}"; do
-        JOB_NAME="${ALGO}_sepsis_terminal_seed${SEED}_fold0"
-        if [ -z "$DRY_RUN" ]; then
-            JOB_ID=$(sbatch --job-name="$JOB_NAME" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
-            echo "Sepsis-terminal $ALGO seed$SEED fold0: $JOB_ID" | tee -a "$LOG_FILE"
-        else
-            echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED 0"
-        fi
-        count=$((count + 1))
+if [ "$SKIP_SEPSIS" = "1" ]; then
+    echo "Skipping Sepsis jobs (SKIP_SEPSIS=1, default). Set SKIP_SEPSIS=0 to include them."
+else
+    # ── Sepsis (terminal, fold 0 only — CV sweep not yet enabled) ─────────────
+    echo "Submitting Sepsis (terminal reward) jobs..."
+    for ALGO in "${ALGOS[@]}"; do
+        for SEED in "${SEEDS[@]}"; do
+            JOB_NAME="${ALGO}_sepsis_terminal_seed${SEED}_fold0"
+            if [ -z "$DRY_RUN" ]; then
+                JOB_ID=$(sbatch --job-name="$JOB_NAME" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
+                echo "Sepsis-terminal $ALGO seed$SEED fold0: $JOB_ID" | tee -a "$LOG_FILE"
+            else
+                echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED 0"
+            fi
+            count=$((count + 1))
+        done
     done
-done
 
-# ── Sepsis (mixed, fold 0 only — CV sweep not yet enabled) ────────────────────
-echo "Submitting Sepsis (mixed reward) jobs..."
-for ALGO in "${ALGOS[@]}"; do
-    for SEED in "${SEEDS[@]}"; do
-        JOB_NAME="${ALGO}_sepsis_mixed_seed${SEED}_fold0"
-        if [ -z "$DRY_RUN" ]; then
-            export SLURM_ARGS="--reward_mode mixed"
-            JOB_ID=$(sbatch --job-name="$JOB_NAME" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
-            echo "Sepsis-mixed $ALGO seed$SEED fold0: $JOB_ID" | tee -a "$LOG_FILE"
-            unset SLURM_ARGS
-        else
-            echo "[DRY] SLURM_ARGS='--reward_mode mixed' sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED 0"
-        fi
-        count=$((count + 1))
+    # ── Sepsis (mixed, fold 0 only — CV sweep not yet enabled) ────────────────
+    echo "Submitting Sepsis (mixed reward) jobs..."
+    for ALGO in "${ALGOS[@]}"; do
+        for SEED in "${SEEDS[@]}"; do
+            JOB_NAME="${ALGO}_sepsis_mixed_seed${SEED}_fold0"
+            if [ -z "$DRY_RUN" ]; then
+                export SLURM_ARGS="--reward_mode mixed"
+                JOB_ID=$(sbatch --job-name="$JOB_NAME" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
+                echo "Sepsis-mixed $ALGO seed$SEED fold0: $JOB_ID" | tee -a "$LOG_FILE"
+                unset SLURM_ARGS
+            else
+                echo "[DRY] SLURM_ARGS='--reward_mode mixed' sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED 0"
+            fi
+            count=$((count + 1))
+        done
     done
-done
+fi
 
 echo ""
 if [ -z "$DRY_RUN" ]; then
