@@ -27,8 +27,14 @@ if [ "${1:-}" = "--" ]; then
     export SLURM_ARGS="$*"
 fi
 
-JOB_NAME="${ALGO}_${DATASET}_seed${SEED}"
-[ "$DATASET" = "sepsis" ] && JOB_NAME="${JOB_NAME}_fold${FOLD}"
+# Short codes so `squeue`'s 8-char-truncated NAME column stays distinguishable
+declare -A ALGO_ABBR=([discrete_bc]=bc [discrete_cql]=cql [discrete_dt]=dt [discrete_tacr]=tacr)
+declare -A DATASET_ABBR=([cartpole]=cp [pong_minari]=pg [pong]=pg [sepsis]=se)
+ALGO_SHORT="${ALGO_ABBR[$ALGO]:-$ALGO}"
+DATASET_SHORT="${DATASET_ABBR[$DATASET]:-$DATASET}"
+
+JOB_NAME="${ALGO_SHORT}_${DATASET_SHORT}_s${SEED}"
+[ "$DATASET" = "sepsis" ] && JOB_NAME="${JOB_NAME}_f${FOLD}"
 
 JOB_ID=$(sbatch --job-name="$JOB_NAME" "$REPO_DIR/slurm/train_template.sh" "$ALGO" "$DATASET" "$SEED" "$FOLD" | awk '{print $NF}')
 
