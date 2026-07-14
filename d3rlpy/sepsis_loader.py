@@ -5,10 +5,11 @@ data for offline reinforcement learning experiments.
 """
 
 import os
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import StratifiedKFold
 
 from d3rlpy.constants import ActionSpace
 from d3rlpy.dataset import (
@@ -21,6 +22,7 @@ from d3rlpy.dataset import (
 
 __all__ = [
     "get_sepsis",
+    "get_sepsis_fold",
     "OBSERVATION_COLUMNS",
     "compute_sofa_scores",
     "discretize_actions",
@@ -478,4 +480,144 @@ def get_sepsis(
         trajectory_slicer=trajectory_slicer,
     )
     print(f"✓ Loaded {len(buffer.episodes)} episodes, {buffer.transition_count} transitions")
+    return buffer
+
+
+def get_sepsis_fold(
+    data_dir: Optional[str] = None,
+    fold: int = 0,
+    n_splits: int = 5,
+    action_space: ActionSpace = ActionSpace.DISCRETE,
+    reward_mode: str = "terminal",
+    transition_picker: Optional[TransitionPickerProtocol] = None,
+    trajectory_slicer: Optional[TrajectorySlicerProtocol] = None,
+) -> Tuple[ReplayBuffer, ReplayBuffer]:
+    """Load MIMIC-IV sepsis cohort with 5-fold cross-validation split.
+
+    Stratifies episodes by survival outcome (icustay_died) to ensure balanced
+    train/test sets across mortality rates.
+
+    Args:
+        data_dir: Path to mimic_dataset.csv and sepsis_cohort.csv.
+        fold: Fold index in [0, n_splits), selects test fold; others train.
+        n_splits: Number of folds (default 5).
+        action_space: DISCRETE (25 actions) or CONTINUOUS.
+        reward_mode: "terminal", "dense", or "mixed".
+        transition_picker: Override for transition sampling.
+        trajectory_slicer: Override for trajectory sampling.
+
+    Returns:
+        (train_buffer, test_buffer): ReplayBuffers for training and evaluation.
+
+    Raises:
+        FileNotFoundError: If CSV files not found.
+        ValueError: If fold >= n_splits.
+    """
+    if fold >= n_splits:
+        raise ValueError(f"fold={fold} must be < n_splits={n_splits}")
+
+    # Determine data directory
+    if data_dir is None:
+        if "SEPSIS_DATA_DIR" in os.environ:
+            data_dir = os.environ["SEPSIS_DATA_DIR"]
+        else:
+            repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            data_dir = os.path.join(repo_root, "data")
+
+    mimic_path = os.path.join(data_dir, "mimic_dataset.csv")
+    cohort_path = os.path.join(data_dir, "sepsis_cohort.csv")
+
+    if not os.path.exists(mimic_path) or not os.path.exists(cohort_path):
+        raise FileNotFoundError(f"MIMIC/cohort CSV not found in {data_dir}")
+
+    print(f"Loading MIMIC dataset from {mimic_path}...")
+    mimic_df = pd.read_csv(mimic_path)
+    print(f"Loading sepsis cohort from {cohort_path}...")
+    sepsis_cohort = pd.read_csv(cohort_path)
+
+    # Stratified fold split by outcome (icustay_died)
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=0)
+    icustayid_unique = sepsis_cohort["icustayid"].unique()
+    outcomes = sepsis_cohort.drop_duplicates("icustayid").set_index("icustayid").loc[icustayid_unique, "icustay_died"].values
+
+    fold_indices = list(skf.split(icustayid_unique, outcomes))
+    train_idx, test_idx = fold_indices[fold]
+    train_ids = set(icustayid_unique[train_idx])
+    test_ids = set(icustayid_unique[test_idx])
+
+    print(f"Fold {fold}/{n_splits}: train {len(train_ids)} episodes, test {len(test_ids)} episodes")
+
+    # Build train and test datasets
+    train_cohort = sepsis_cohort[sepsis_cohort["icustayid"].isin(train_ids)]
+    test_cohort = sepsis_cohort[sepsis_cohort["icustayid"].isin(test_ids)]
+
+    train_buffer = _build_buffer_from_cohort(
+        mimic_df, train_cohort, action_space, reward_mode,
+        transition_picker, trajectory_slicer
+    )
+    test_buffer = _build_buffer_from_cohort(
+        mimic_df, test_cohort, action_space, reward_mode,
+        transition_picker, trajectory_slicer
+    )
+
+    return train_buffer, test_buffer
+
+
+def _build_buffer_from_cohort(
+    mimic_df: pd.DataFrame,
+    cohort_df: pd.DataFrame,
+    action_space: ActionSpace,
+    reward_mode: str,
+    transition_picker: Optional[TransitionPickerProtocol],
+    trajectory_slicer: Optional[TrajectorySlicerProtocol],
+) -> ReplayBuffer:
+    """Helper to build ReplayBuffer from a subset of cohort."""
+    if reward_mode == "terminal":
+        reward_col = "reward_terminal"
+        outcome_col = "icustay_died"
+    elif reward_mode == "dense":
+        reward_col = "reward_dense"
+        outcome_col = None
+    elif reward_mode == "mixed":
+        reward_col = "reward_mixed"
+        outcome_col = None
+    else:
+        raise ValueError(f"Invalid reward_mode: {reward_mode}")
+
+    action_space_str = "discrete" if action_space == ActionSpace.DISCRETE else "continuous"
+    if action_space == ActionSpace.DISCRETE:
+        buffer_action_cols = [f"action_bin_{i}" for i in range(5)]
+        action_size = 25
+    else:
+        buffer_action_cols = ["action_fluid", "action_vaso"]
+        action_size = 2
+
+    # Filter mimic_df to cohort episodes
+    mimic_subset = mimic_df[mimic_df["icustayid"].isin(cohort_df["icustayid"])]
+    if len(mimic_subset) == 0:
+        raise ValueError("No MIMIC records found for cohort episodes")
+
+    # Ensure reward columns exist
+    for col in buffer_action_cols + [reward_col]:
+        if col not in mimic_subset.columns:
+            raise ValueError(f"Column {col} not found in MIMIC dataset")
+
+    # Compute SOFA if needed
+    if "SOFA_resp" not in mimic_subset.columns:
+        mimic_subset = compute_sofa_scores(mimic_subset)
+
+    # Pad trajectories
+    padded_df = _pad_episodes(mimic_subset, reward_col)
+
+    buffer = _dataframe_to_replaybuffer(
+        padded_df,
+        obs_cols=OBSERVATION_COLUMNS,
+        action_cols=buffer_action_cols,
+        reward_col=reward_col,
+        action_space=action_space,
+        action_size=action_size,
+        outcome_col=outcome_col,
+        transition_picker=transition_picker,
+        trajectory_slicer=trajectory_slicer,
+    )
     return buffer
