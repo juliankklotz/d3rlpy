@@ -23,6 +23,11 @@ if [ ! -f "$TEMPLATE" ]; then
     exit 1
 fi
 
+# cd into REPO_DIR: SLURM_SUBMIT_DIR (used by train_template.sh to locate
+# itself, since ${BASH_SOURCE[0]} breaks under SLURM's spool copy) is set to
+# the cwd at each sbatch call's submit time, not this script's own location.
+cd "$REPO_DIR"
+
 mkdir -p "$REPO_DIR/logs"
 > "$LOG_FILE"
 
