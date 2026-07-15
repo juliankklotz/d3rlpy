@@ -1,0 +1,2 @@
+bash: /var/spool/slurm/slurmd/scripts/cluster_validate: No such file or directory
+FATAL: environment validation failed — aborting job.
