@@ -36,6 +36,9 @@ DATASET_SHORT="${DATASET_ABBR[$DATASET]:-$DATASET}"
 JOB_NAME="${ALGO_SHORT}_${DATASET_SHORT}_s${SEED}"
 [ "$DATASET" = "sepsis" ] && JOB_NAME="${JOB_NAME}_f${FOLD}"
 
-JOB_ID=$(sbatch --job-name="$JOB_NAME" "$REPO_DIR/slurm/train_template.sh" "$ALGO" "$DATASET" "$SEED" "$FOLD" | awk '{print $NF}')
+# cd into REPO_DIR before sbatch: SLURM_SUBMIT_DIR (used by train_template.sh
+# to locate itself, since ${BASH_SOURCE[0]} breaks under SLURM's spool copy)
+# is set to the cwd at submit time, not this script's own location.
+JOB_ID=$(cd "$REPO_DIR" && sbatch --job-name="$JOB_NAME" "$REPO_DIR/slurm/train_template.sh" "$ALGO" "$DATASET" "$SEED" "$FOLD" | awk '{print $NF}')
 
 echo "Submitted $JOB_NAME: $JOB_ID"

@@ -35,7 +35,24 @@ export MINARI_DATASETS_PATH="/gpfs/data/fs72297/jklotz/programming_data/d3rlpy_d
 export SEPSIS_DATA_DIR="/gpfs/data/fs72297/jklotz/programming_data/sepsis_data"
 
 # ── pre-flight validation ────────────────────────────────────────────────────
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# NOTE: SLURM copies the submitted script to a spool dir before execution, so
+# ${BASH_SOURCE[0]} does NOT point at the real repo checkout here — it resolves
+# to something like /var/spool/slurm/slurmd/scripts/... Use SLURM_SUBMIT_DIR
+# (set by sbatch to the cwd at submission time) instead. Fallback to
+# BASH_SOURCE-based detection only for manual `bash train_template.sh` runs
+# outside SLURM (e.g. local testing), where SLURM_SUBMIT_DIR is unset.
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+    REPO_DIR="$SLURM_SUBMIT_DIR"
+else
+    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+
+if [ ! -f "$REPO_DIR/scripts/cluster_validate" ]; then
+    echo "FATAL: REPO_DIR resolved to '$REPO_DIR' but scripts/cluster_validate not found there." >&2
+    echo "       SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<unset>}" >&2
+    exit 1
+fi
+
 PYTHON="$PYTHON" bash "$REPO_DIR/scripts/cluster_validate" || {
     echo "FATAL: environment validation failed — aborting job." >&2
     exit 1
