@@ -38,10 +38,11 @@ export SEPSIS_DATA_DIR="/gpfs/data/fs72297/jklotz/programming_data/sepsis_data"
 # NOTE: SLURM copies the submitted script to a spool dir before execution, so
 # ${BASH_SOURCE[0]} does NOT point at the real repo checkout here — it resolves
 # to something like /var/spool/slurm/slurmd/scripts/... Use SLURM_SUBMIT_DIR
-# (set by sbatch to the cwd at submission time) instead. Fallback to
-# BASH_SOURCE-based detection only for manual `bash train_template.sh` runs
-# outside SLURM (e.g. local testing), where SLURM_SUBMIT_DIR is unset.
-if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+# (which sbatch sets to the cwd at submission time) instead. Only trust it
+# inside a real SLURM job (SLURM_JOB_ID set): an interactive JupyterHub session
+# pre-exports a bogus SLURM_SUBMIT_DIR=/opt/jupyterhub, so a `bash train_template.sh`
+# there must self-locate via BASH_SOURCE instead.
+if [ -n "${SLURM_JOB_ID:-}" ] && [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
     REPO_DIR="$SLURM_SUBMIT_DIR"
 else
     REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,7 +50,7 @@ fi
 
 if [ ! -f "$REPO_DIR/scripts/cluster_validate" ]; then
     echo "FATAL: REPO_DIR resolved to '$REPO_DIR' but scripts/cluster_validate not found there." >&2
-    echo "       SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<unset>}" >&2
+    echo "       SLURM_JOB_ID=${SLURM_JOB_ID:-<unset>}  SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<unset>}" >&2
     exit 1
 fi
 

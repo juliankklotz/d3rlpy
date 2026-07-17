@@ -20,7 +20,11 @@
 
 set -eu
 
-if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+# Trust SLURM_SUBMIT_DIR only inside a real SLURM job (SLURM_JOB_ID is set by
+# sbatch, not by an interactive JupyterHub session — which pre-exports a bogus
+# SLURM_SUBMIT_DIR=/opt/jupyterhub). When run as plain bash, self-locate via
+# BASH_SOURCE instead.
+if [ -n "${SLURM_JOB_ID:-}" ] && [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
     REPO_DIR="$SLURM_SUBMIT_DIR"
 else
     REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
