@@ -20,14 +20,32 @@
 
 set -eu
 
-# Trust SLURM_SUBMIT_DIR only inside a real SLURM job (SLURM_JOB_ID is set by
-# sbatch, not by an interactive JupyterHub session — which pre-exports a bogus
-# SLURM_SUBMIT_DIR=/opt/jupyterhub). When run as plain bash, self-locate via
-# BASH_SOURCE instead.
-if [ -n "${SLURM_JOB_ID:-}" ] && [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
-    REPO_DIR="$SLURM_SUBMIT_DIR"
-else
-    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve REPO_DIR by trying candidates in order and picking the first that
+# actually contains the repo. Env-var sniffing alone is unreliable here:
+# - under sbatch, ${BASH_SOURCE[0]} points at SLURM's spool copy, not the repo
+# - under an interactive JupyterHub session on a compute node, SLURM_SUBMIT_DIR
+#   is pre-set to a bogus /opt/jupyterhub (and SLURM_JOB_ID may also be set,
+#   so it cannot be used to discriminate)
+# Validating each candidate sidesteps the guessing entirely.
+REPO_DIR=""
+for _candidate in \
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" \
+    "${SLURM_SUBMIT_DIR:-}" \
+    "$PWD"
+do
+    if [ -n "$_candidate" ] && [ -f "$_candidate/scripts/cluster_validate" ]; then
+        REPO_DIR="$_candidate"
+        break
+    fi
+done
+
+if [ -z "$REPO_DIR" ]; then
+    echo "FAIL: could not locate repo root (no candidate contained scripts/cluster_validate)." >&2
+    echo "      BASH_SOURCE=${BASH_SOURCE[0]}" >&2
+    echo "      SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<unset>}" >&2
+    echo "      PWD=$PWD" >&2
+    echo "      Run this from the repo root: cd <repo> && bash slurm/sanity_check.sh" >&2
+    exit 1
 fi
 
 echo "=== SLURM sanity check ==="

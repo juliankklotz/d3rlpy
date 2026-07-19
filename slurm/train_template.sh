@@ -35,24 +35,35 @@ export MINARI_DATASETS_PATH="/gpfs/data/fs72297/jklotz/programming_data/d3rlpy_d
 export SEPSIS_DATA_DIR="/gpfs/data/fs72297/jklotz/programming_data/sepsis_data"
 
 # ── pre-flight validation ────────────────────────────────────────────────────
-# NOTE: SLURM copies the submitted script to a spool dir before execution, so
-# ${BASH_SOURCE[0]} does NOT point at the real repo checkout here — it resolves
-# to something like /var/spool/slurm/slurmd/scripts/... Use SLURM_SUBMIT_DIR
-# (which sbatch sets to the cwd at submission time) instead. Only trust it
-# inside a real SLURM job (SLURM_JOB_ID set): an interactive JupyterHub session
-# pre-exports a bogus SLURM_SUBMIT_DIR=/opt/jupyterhub, so a `bash train_template.sh`
-# there must self-locate via BASH_SOURCE instead.
-if [ -n "${SLURM_JOB_ID:-}" ] && [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
-    REPO_DIR="$SLURM_SUBMIT_DIR"
-else
-    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fi
+# Resolve REPO_DIR by trying candidates in order and picking the first that
+# actually contains the repo. Env-var sniffing alone is unreliable:
+# - under sbatch, SLURM copies this script to a spool dir, so ${BASH_SOURCE[0]}
+#   resolves to /var/spool/slurm/slurmd/scripts/... not the repo
+# - under an interactive JupyterHub session, SLURM_SUBMIT_DIR is pre-set to a
+#   bogus /opt/jupyterhub (and SLURM_JOB_ID may also be set, so it cannot be
+#   used to discriminate)
+# SLURM_SUBMIT_DIR is tried first since that is the correct source for real
+# batch jobs; each candidate is validated before being accepted.
+REPO_DIR=""
+for _candidate in \
+    "${SLURM_SUBMIT_DIR:-}" \
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" \
+    "$PWD"
+do
+    if [ -n "$_candidate" ] && [ -f "$_candidate/scripts/cluster_validate" ]; then
+        REPO_DIR="$_candidate"
+        break
+    fi
+done
 
-if [ ! -f "$REPO_DIR/scripts/cluster_validate" ]; then
-    echo "FATAL: REPO_DIR resolved to '$REPO_DIR' but scripts/cluster_validate not found there." >&2
-    echo "       SLURM_JOB_ID=${SLURM_JOB_ID:-<unset>}  SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<unset>}" >&2
+if [ -z "$REPO_DIR" ]; then
+    echo "FATAL: could not locate repo root (no candidate contained scripts/cluster_validate)." >&2
+    echo "       BASH_SOURCE=${BASH_SOURCE[0]}" >&2
+    echo "       SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<unset>}" >&2
+    echo "       PWD=$PWD" >&2
     exit 1
 fi
+echo "REPO_DIR resolved to: $REPO_DIR"
 
 PYTHON="$PYTHON" bash "$REPO_DIR/scripts/cluster_validate" || {
     echo "FATAL: environment validation failed — aborting job." >&2
