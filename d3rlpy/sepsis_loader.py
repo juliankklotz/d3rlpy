@@ -297,11 +297,16 @@ def _dataframe_to_replaybuffer(
         obs = g[obs_cols].to_numpy(dtype=np.float32)
         acts = g[action_cols].to_numpy(dtype=np.float32)
 
-        # Flatten discrete actions to scalar
+        # Discrete actions: keep as (N, 1) int, NOT flattened to (N,).
+        # d3rlpy's TransitionMiniBatch requires per-transition actions to be
+        # non-0-d (check_non_1d_array); a flattened (N,) array yields 0-d
+        # scalar actions per transition and fails that assertion. CartPole's
+        # built-in dataset likewise stores discrete actions as (N, 1).
         if action_space == ActionSpace.DISCRETE and acts.shape[1] == 1:
-            acts = acts.flatten().astype(np.int32)
+            acts = acts.astype(np.int32)
 
-        rews = g[reward_col].to_numpy(dtype=np.float32)
+        # Rewards must be (N, 1) for the same non-0-d reason as actions above.
+        rews = g[reward_col].to_numpy(dtype=np.float32).reshape(-1, 1)
 
         # Death = absorbing terminal state; survival = episode end (not terminal)
         died = bool(g[outcome_col].iloc[-1]) if outcome_col in g.columns else True
