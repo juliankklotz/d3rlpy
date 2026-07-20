@@ -77,7 +77,7 @@ echo "Python:   $PYTHON  ($(hostname))"
 echo "Args:     ${SLURM_ARGS:-none}"
 
 case "$DATASET" in
-    cartpole|pong)
+    cartpole|pong|pong_minari)
         SCRIPT="$REPO_DIR/training/train_benchmarks.py"
         EXTRA_ARGS="--dataset $DATASET"
         ;;

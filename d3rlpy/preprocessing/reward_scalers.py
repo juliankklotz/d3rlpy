@@ -291,12 +291,20 @@ class StandardRewardScaler(RewardScaler):
         trajectory_slicer: TrajectorySlicerProtocol,
     ) -> None:
         assert not self.built
-        rewards = [
-            trajectory_slicer(
-                episode, episode.size() - 1, episode.size()
-            ).rewards
-            for episode in episodes
-        ]
+        # Each episode's sliced rewards can have a different length (variable-length
+        # episodes), so the per-episode arrays are ragged — concatenate into one
+        # flat array before computing statistics rather than np.mean on the list
+        # (which raises "inhomogeneous shape" on ragged input).
+        rewards = np.concatenate(
+            [
+                np.asarray(
+                    trajectory_slicer(
+                        episode, episode.size() - 1, episode.size()
+                    ).rewards
+                ).reshape(-1)
+                for episode in episodes
+            ]
+        )
         self.mean = float(np.mean(rewards))
         self.std = float(np.std(rewards))
 

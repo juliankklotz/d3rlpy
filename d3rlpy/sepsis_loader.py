@@ -331,6 +331,7 @@ def get_sepsis(
     reward_mode: str = "terminal",
     transition_picker: Optional[TransitionPickerProtocol] = None,
     trajectory_slicer: Optional[TrajectorySlicerProtocol] = None,
+    icu_id_filter: Optional[set] = None,
 ) -> ReplayBuffer:
     """Load MIMIC-IV sepsis cohort dataset.
 
@@ -347,6 +348,9 @@ def get_sepsis(
                      or "mixed" (α=0.5 × SOFA-change + terminal ±15).
         transition_picker: Override for transition sampling.
         trajectory_slicer: Override for trajectory sampling.
+        icu_id_filter: If given, restrict the cohort to these icustayid values
+                       (used by get_sepsis_fold to build train/test splits from
+                       the exact same pipeline).
 
     Returns:
         ReplayBuffer with sepsis episodes.
@@ -393,6 +397,8 @@ def get_sepsis(
 
     print("Filtering to sepsis cohort...")
     sepsis_icu_ids = sepsis_cohort["icustayid"].unique()
+    if icu_id_filter is not None:
+        sepsis_icu_ids = np.array([i for i in sepsis_icu_ids if i in icu_id_filter])
     sepsis_df = mimic_df[mimic_df["icustayid"].isin(sepsis_icu_ids)].copy()
 
     print(f"Sepsis cohort: {len(sepsis_icu_ids)} ICU stays, {len(sepsis_df)} timesteps")
@@ -530,94 +536,53 @@ def get_sepsis_fold(
     if not os.path.exists(mimic_path) or not os.path.exists(cohort_path):
         raise FileNotFoundError(f"MIMIC/cohort CSV not found in {data_dir}")
 
-    print(f"Loading MIMIC dataset from {mimic_path}...")
-    mimic_df = pd.read_csv(mimic_path)
-    print(f"Loading sepsis cohort from {cohort_path}...")
+    # Determine per-ICU-stay outcome for stratification, from the same source
+    # get_sepsis uses (morta_90 in mimic_dataset.csv, restricted to the cohort).
+    print(f"Loading cohort IDs + outcomes from {mimic_path} / {cohort_path}...")
     sepsis_cohort = pd.read_csv(cohort_path)
+    mimic_df = pd.read_csv(mimic_path, usecols=["icustayid", "morta_90"])
 
-    # Stratified fold split by outcome (icustay_died)
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=0)
-    icustayid_unique = sepsis_cohort["icustayid"].unique()
-    outcomes = sepsis_cohort.drop_duplicates("icustayid").set_index("icustayid").loc[icustayid_unique, "icustay_died"].values
-
-    fold_indices = list(skf.split(icustayid_unique, outcomes))
-    train_idx, test_idx = fold_indices[fold]
-    train_ids = set(icustayid_unique[train_idx])
-    test_ids = set(icustayid_unique[test_idx])
-
-    print(f"Fold {fold}/{n_splits}: train {len(train_ids)} episodes, test {len(test_ids)} episodes")
-
-    # Build train and test datasets
-    train_cohort = sepsis_cohort[sepsis_cohort["icustayid"].isin(train_ids)]
-    test_cohort = sepsis_cohort[sepsis_cohort["icustayid"].isin(test_ids)]
-
-    train_buffer = _build_buffer_from_cohort(
-        mimic_df, train_cohort, action_space, reward_mode,
-        transition_picker, trajectory_slicer
+    cohort_ids = set(sepsis_cohort["icustayid"].unique())
+    per_stay = (
+        mimic_df[mimic_df["icustayid"].isin(cohort_ids)]
+        .groupby("icustayid")["morta_90"]
+        .last()  # 90-day mortality is constant within a stay; last() is robust to padding
     )
-    test_buffer = _build_buffer_from_cohort(
-        mimic_df, test_cohort, action_space, reward_mode,
-        transition_picker, trajectory_slicer
+    icu_ids = per_stay.index.to_numpy()
+    outcomes = per_stay.to_numpy()
+
+    # Stratified fold split by 90-day mortality outcome
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=0)
+    fold_indices = list(skf.split(icu_ids, outcomes))
+    train_idx, test_idx = fold_indices[fold]
+    train_ids = set(icu_ids[train_idx].tolist())
+    test_ids = set(icu_ids[test_idx].tolist())
+
+    print(
+        f"Fold {fold}/{n_splits}: train {len(train_ids)} stays "
+        f"(died {int(outcomes[train_idx].sum())}), "
+        f"test {len(test_ids)} stays (died {int(outcomes[test_idx].sum())})"
+    )
+
+    # Build each split through the exact same pipeline as get_sepsis, just
+    # restricted to the fold's ICU stays via icu_id_filter.
+    print("Building train split...")
+    train_buffer = get_sepsis(
+        data_dir=data_dir,
+        action_space=action_space,
+        reward_mode=reward_mode,
+        transition_picker=transition_picker,
+        trajectory_slicer=trajectory_slicer,
+        icu_id_filter=train_ids,
+    )
+    print("Building test split...")
+    test_buffer = get_sepsis(
+        data_dir=data_dir,
+        action_space=action_space,
+        reward_mode=reward_mode,
+        transition_picker=transition_picker,
+        trajectory_slicer=trajectory_slicer,
+        icu_id_filter=test_ids,
     )
 
     return train_buffer, test_buffer
-
-
-def _build_buffer_from_cohort(
-    mimic_df: pd.DataFrame,
-    cohort_df: pd.DataFrame,
-    action_space: ActionSpace,
-    reward_mode: str,
-    transition_picker: Optional[TransitionPickerProtocol],
-    trajectory_slicer: Optional[TrajectorySlicerProtocol],
-) -> ReplayBuffer:
-    """Helper to build ReplayBuffer from a subset of cohort."""
-    if reward_mode == "terminal":
-        reward_col = "reward_terminal"
-        outcome_col = "icustay_died"
-    elif reward_mode == "dense":
-        reward_col = "reward_dense"
-        outcome_col = None
-    elif reward_mode == "mixed":
-        reward_col = "reward_mixed"
-        outcome_col = None
-    else:
-        raise ValueError(f"Invalid reward_mode: {reward_mode}")
-
-    action_space_str = "discrete" if action_space == ActionSpace.DISCRETE else "continuous"
-    if action_space == ActionSpace.DISCRETE:
-        buffer_action_cols = [f"action_bin_{i}" for i in range(5)]
-        action_size = 25
-    else:
-        buffer_action_cols = ["action_fluid", "action_vaso"]
-        action_size = 2
-
-    # Filter mimic_df to cohort episodes
-    mimic_subset = mimic_df[mimic_df["icustayid"].isin(cohort_df["icustayid"])]
-    if len(mimic_subset) == 0:
-        raise ValueError("No MIMIC records found for cohort episodes")
-
-    # Ensure reward columns exist
-    for col in buffer_action_cols + [reward_col]:
-        if col not in mimic_subset.columns:
-            raise ValueError(f"Column {col} not found in MIMIC dataset")
-
-    # Compute SOFA if needed
-    if "SOFA_resp" not in mimic_subset.columns:
-        mimic_subset = compute_sofa_scores(mimic_subset)
-
-    # Pad trajectories
-    padded_df = _pad_episodes(mimic_subset, reward_col)
-
-    buffer = _dataframe_to_replaybuffer(
-        padded_df,
-        obs_cols=OBSERVATION_COLUMNS,
-        action_cols=buffer_action_cols,
-        reward_col=reward_col,
-        action_space=action_space,
-        action_size=action_size,
-        outcome_col=outcome_col,
-        transition_picker=transition_picker,
-        trajectory_slicer=trajectory_slicer,
-    )
-    return buffer
