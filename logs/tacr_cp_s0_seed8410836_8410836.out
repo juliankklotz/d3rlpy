@@ -1,0 +1,16 @@
+REPO_DIR resolved to: /gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy
+[validate] Python: /gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/bin/python
+[validate] torch=2.10.0+cu128  typing_extensions=4.15.0
+[validate] imports OK
+Starting: algo=discrete_tacr  dataset=cartpole  seed=0  fold=0
+Python:   /gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/bin/python  (n3071-003)
+Args:     none
+[2m2026-07-19 17:41.46[0m [[32m[1minfo     [0m] [1mSignatures have been automatically determined.[0m [36maction_signature[0m=[35mSignature(dtype=[dtype('int32')], shape=[(1,)])[0m [36mobservation_signature[0m=[35mSignature(dtype=[dtype('float32')], shape=[(4,)])[0m [36mreward_signature[0m=[35mSignature(dtype=[dtype('float32')], shape=[(1,)])[0m
+[2m2026-07-19 17:41.46[0m [[32m[1minfo     [0m] [1mAction-space has been automatically determined.[0m [36maction_space[0m=[35m<ActionSpace.DISCRETE: 2>[0m
+[2m2026-07-19 17:41.46[0m [[32m[1minfo     [0m] [1mAction size has been automatically determined.[0m [36maction_size[0m=[35m2[0m
+algo=discrete_tacr  dataset=cartpole  seed=0  n_steps=100000
+python=/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/bin/python  device=cuda:0
+[2m2026-07-19 17:41.46[0m [[32m[1minfo     [0m] [1mdataset info                  [0m [36mdataset_info[0m=[35mDatasetInfo(observation_signature=Signature(dtype=[dtype('float32')], shape=[(4,)]), action_signature=Signature(dtype=[dtype('int32')], shape=[(1,)]), reward_signature=Signature(dtype=[dtype('float32')], shape=[(1,)]), action_space=<ActionSpace.DISCRETE: 2>, action_size=2)[0m
+[2m2026-07-19 17:41.46[0m [[32m[1mdebug    [0m] [1mFitting observation scaler... [0m [36mobservation_scaler[0m=[35mstandard[0m
+[2m2026-07-19 17:41.47[0m [[32m[1mdebug    [0m] [1mFitting reward scaler...      [0m [36mreward_scaler[0m=[35mstandard[0m
+Done.

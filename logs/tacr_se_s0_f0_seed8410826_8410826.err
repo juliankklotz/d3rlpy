@@ -1,0 +1,43 @@
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Traceback (most recent call last):
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/indexes/base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'icustay_died'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy/training/train_sepsis.py", line 224, in <module>
+    main()
+  File "/gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy/training/train_sepsis.py", line 189, in main
+    train_dataset, test_dataset = get_sepsis_fold(
+  File "/gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy/d3rlpy/sepsis_loader.py", line 541, in get_sepsis_fold
+    outcomes = sepsis_cohort.drop_duplicates("icustayid").set_index("icustayid").loc[icustayid_unique, "icustay_died"].values
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/indexing.py", line 1185, in __getitem__
+    return self._getitem_tuple(key)
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/indexing.py", line 1369, in _getitem_tuple
+    return self._getitem_lowerdim(tup)
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/indexing.py", line 1066, in _getitem_lowerdim
+    section = self._getitem_axis(key, axis=i)
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/indexing.py", line 1432, in _getitem_axis
+    return self._get_label(key, axis=axis)
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/indexing.py", line 1382, in _get_label
+    return self.obj.xs(label, axis=axis)
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/generic.py", line 4309, in xs
+    return self[key]
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/frame.py", line 4113, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/lib/python3.10/site-packages/pandas/core/indexes/base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'icustay_died'

@@ -1,0 +1,11 @@
+REPO_DIR resolved to: /gpfs/data/fs72297/jklotz/programming/cloned_repos/forked_repos_for_master_thesis/d3rlpy
+[validate] Python: /gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/bin/python
+[validate] torch=2.10.0+cu128  typing_extensions=4.15.0
+[validate] imports OK
+Starting: algo=discrete_tacr  dataset=sepsis  seed=0  fold=0
+Python:   /gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/bin/python  (n3071-003)
+Args:     --reward_mode mixed
+Loading sepsis dataset from /gpfs/data/fs72297/jklotz/programming_data/sepsis_data (fold 0/5) ...
+Loading MIMIC dataset from /gpfs/data/fs72297/jklotz/programming_data/sepsis_data/mimic_dataset.csv...
+Loading sepsis cohort from /gpfs/data/fs72297/jklotz/programming_data/sepsis_data/sepsis_cohort.csv...
+Done.

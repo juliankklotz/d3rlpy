@@ -1,24 +1,24 @@
-CartPole discrete_bc seed0: 8383417
-CartPole discrete_bc seed1: 8383418
-CartPole discrete_bc seed2: 8383419
-CartPole discrete_cql seed0: 8383420
-CartPole discrete_cql seed1: 8383421
-CartPole discrete_cql seed2: 8383422
-CartPole discrete_dt seed0: 8383423
-CartPole discrete_dt seed1: 8383424
-CartPole discrete_dt seed2: 8383425
-CartPole discrete_tacr seed0: 8383426
-CartPole discrete_tacr seed1: 8383427
-CartPole discrete_tacr seed2: 8383428
-Pong discrete_bc seed0: 8383429
-Pong discrete_bc seed1: 8383430
-Pong discrete_bc seed2: 8383431
-Pong discrete_cql seed0: 8383432
-Pong discrete_cql seed1: 8383433
-Pong discrete_cql seed2: 8383434
-Pong discrete_dt seed0: 8383435
-Pong discrete_dt seed1: 8383436
-Pong discrete_dt seed2: 8383437
-Pong discrete_tacr seed0: 8383438
-Pong discrete_tacr seed1: 8383439
-Pong discrete_tacr seed2: 8383440
+CartPole discrete_bc seed0 (bc_cp_s0): 8410827
+CartPole discrete_bc seed1 (bc_cp_s1): 8410828
+CartPole discrete_bc seed2 (bc_cp_s2): 8410829
+CartPole discrete_cql seed0 (cql_cp_s0): 8410830
+CartPole discrete_cql seed1 (cql_cp_s1): 8410831
+CartPole discrete_cql seed2 (cql_cp_s2): 8410832
+CartPole discrete_dt seed0 (dt_cp_s0): 8410833
+CartPole discrete_dt seed1 (dt_cp_s1): 8410834
+CartPole discrete_dt seed2 (dt_cp_s2): 8410835
+CartPole discrete_tacr seed0 (tacr_cp_s0): 8410836
+CartPole discrete_tacr seed1 (tacr_cp_s1): 8410837
+CartPole discrete_tacr seed2 (tacr_cp_s2): 8410838
+Pong discrete_bc seed0 (bc_pg_s0): 8410839
+Pong discrete_bc seed1 (bc_pg_s1): 8410840
+Pong discrete_bc seed2 (bc_pg_s2): 8410841
+Pong discrete_cql seed0 (cql_pg_s0): 8410842
+Pong discrete_cql seed1 (cql_pg_s1): 8410843
+Pong discrete_cql seed2 (cql_pg_s2): 8410844
+Pong discrete_dt seed0 (dt_pg_s0): 8410845
+Pong discrete_dt seed1 (dt_pg_s1): 8410846
+Pong discrete_dt seed2 (dt_pg_s2): 8410847
+Pong discrete_tacr seed0 (tacr_pg_s0): 8410848
+Pong discrete_tacr seed1 (tacr_pg_s1): 8410849
+Pong discrete_tacr seed2 (tacr_pg_s2): 8410850
