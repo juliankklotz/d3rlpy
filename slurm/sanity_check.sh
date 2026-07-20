@@ -55,7 +55,7 @@ echo "REPO_DIR resolved to: $REPO_DIR"
 echo ""
 
 # ── hardcoded python path (must match train_template.sh) ─────────────────────
-PYTHON="/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/bin/python"
+PYTHON="/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_repro_py310/bin/python"
 if [ ! -f "$PYTHON" ]; then
     echo "FAIL: python not found at $PYTHON" >&2
     echo "Run: conda env list  # to find current path" >&2

@@ -22,7 +22,7 @@ if [ -z "$ALGO" ] || [ -z "$DATASET" ] || [ -z "$SEED" ]; then
 fi
 
 # ── hardcoded python path (update if env recreated) ──────────────────────────
-PYTHON="/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_dev_final_py310/bin/python"
+PYTHON="/gpfs/data/fs72297/jklotz/.conda/envs/d3rlpy_repro_py310/bin/python"
 if [ ! -f "$PYTHON" ]; then
     echo "ERROR: python not found at $PYTHON" >&2
     echo "Run: conda env list  # to find current path" >&2

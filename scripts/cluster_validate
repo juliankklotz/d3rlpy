@@ -8,7 +8,7 @@
 
 # --- resolve python -------------------------------------------------------
 if [ -z "${PYTHON:-}" ]; then
-    ENV_NAME="d3rlpy_dev_final_py310"
+    ENV_NAME="d3rlpy_repro_py310"
     # Find env path via conda if available, else fall back to PATH
     if command -v conda &>/dev/null; then
         ENV_PATH="$(conda env list 2>/dev/null | grep -E "^${ENV_NAME}\s" | awk '{print $NF}')"
