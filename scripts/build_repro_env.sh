@@ -33,16 +33,25 @@ mkdir -p "$REPO_DIR/logs"
 cat > "$BUILD_SCRIPT" <<BUILDEOF
 #!/bin/bash
 set -euo pipefail
-source "\$(conda info --base)/etc/profile.d/conda.sh"
+# Source conda by absolute path — a fresh sbatch job may not have it on PATH.
+CONDA_SH="/opt/sw/conda/miniconda3-24.1.2/etc/profile.d/conda.sh"
+if [ -f "\$CONDA_SH" ]; then
+    source "\$CONDA_SH"
+else
+    source "\$(conda info --base)/etc/profile.d/conda.sh"
+fi
 
 REPO_DIR="$REPO_DIR"
 ENV_PREFIX="$ENV_PREFIX"
 
-# Keep conda's package cache + pip/tmp on the DATA node too (home is small).
+# Keep conda's package cache + tmp on the DATA node too (home is small).
 export CONDA_PKGS_DIRS="/gpfs/data/fs72297/jklotz/.conda/pkgs"
 export TMPDIR="/gpfs/data/fs72297/jklotz/tmp"
-export PIP_CACHE_DIR="/gpfs/data/fs72297/jklotz/.cache/pip"
-mkdir -p "\$CONDA_PKGS_DIRS" "\$TMPDIR" "\$PIP_CACHE_DIR"
+mkdir -p "\$CONDA_PKGS_DIRS" "\$TMPDIR"
+# torch's cu128 wheel is multi-GB — stream it, don't buffer the whole thing
+# (this + running on a compute node avoids the login-node OOM that killed the
+# naive build).
+export PIP_NO_CACHE_DIR=1
 
 echo "=== conda env create at \$ENV_PREFIX (torch+CUDA via conda) ==="
 conda env create -p "\$ENV_PREFIX" -f "\$REPO_DIR/environment.yml"
