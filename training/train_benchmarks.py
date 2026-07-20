@@ -54,21 +54,22 @@ HPARAMS = {
         ),
     },
     "pong_minari": {
-        # minari atari/pong/expert-v0 + FrameStack(4) → obs [12, 210, 160]
-        # Smaller batch/context than pong to fit in GPU memory.
+        # minari atari/pong/expert-v0, loaded plainly (NO extra frame stacking).
+        # Config matches the proven exp08 atari_pong.ipynb runs: PixelEncoder
+        # feature_size=64, context_size=50, heads=4, layers=3, max_timestep=2000.
         "target_return": 20,
         "n_steps": 500_000,
         "n_steps_per_epoch": 5_000,
-        "discrete_bc": dict(batch_size=16, learning_rate=1e-3),
-        "discrete_cql": dict(batch_size=16),
+        "discrete_bc": dict(batch_size=128, learning_rate=1e-3),
+        "discrete_cql": dict(batch_size=128),
         "discrete_dt": dict(
-            batch_size=16, context_size=10, num_heads=4, num_layers=6,
-            max_timestep=27_000,
+            batch_size=128, context_size=50, num_heads=4, num_layers=3,
+            max_timestep=2_000,
         ),
         "discrete_tacr": dict(
-            batch_size=16, context_size=10, num_heads=4, num_layers=6,
-            actor_learning_rate=1e-4, max_timestep=27_000,
-            position_encoding_type=d3rlpy.PositionEncodingType.SIMPLE,
+            batch_size=128, context_size=50, num_heads=4, num_layers=3,
+            actor_learning_rate=1e-4, max_timestep=2_000,
+            position_encoding_type=d3rlpy.PositionEncodingType.GLOBAL,
             compile_graph=False,
         ),
     },
@@ -79,11 +80,14 @@ PONG_DATASETS = {"pong", "pong_minari"}
 
 
 def _actor_encoder(dataset_name: str) -> object:
-    """Pixel encoder for Pong variants, vector encoder for CartPole."""
+    """Pixel encoder for Pong variants, vector encoder for CartPole.
+
+    Pong config matches the proven exp08 atari_pong.ipynb runs: default filters,
+    feature_size=64.
+    """
     if dataset_name in PONG_DATASETS:
         return d3rlpy.models.PixelEncoderFactory(
-            filters=[[32, 8, 4], [64, 4, 2], [64, 3, 1]],
-            feature_size=512,
+            feature_size=64,
             exclude_last_activation=True,
         )
     return d3rlpy.models.VectorEncoderFactory([128], exclude_last_activation=True)
@@ -159,14 +163,10 @@ def load_dataset(
                 "Or set --dataset pong_minari to use raw minari frames (suboptimal)."
             )
     if dataset_name == "pong_minari":
-        # Fallback: minari raw [3, 210, 160] frames with FrameStack(4) → [12, 210, 160].
-        # Larger memory footprint; not standard benchmark format.
-        from d3rlpy.dataset import FrameStackTransitionPicker, FrameStackTrajectorySlicer
-        return d3rlpy.datasets.get_minari(
-            "atari/pong/expert-v0",
-            transition_picker=FrameStackTransitionPicker(n_frames=4),
-            trajectory_slicer=FrameStackTrajectorySlicer(n_frames=4),
-        )
+        # Plain minari load, matching the proven exp08 atari_pong.ipynb runs.
+        # NO extra frame stacking: the earlier FrameStack(4) variant was never
+        # actually run to completion and diverged from the working notebook.
+        return d3rlpy.datasets.get_minari("atari/pong/expert-v0")
     raise ValueError(f"Unknown dataset: {dataset_name}. Use cartpole, pong, or pong_minari.")
 
 
