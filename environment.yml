@@ -1,0 +1,47 @@
+# Reproducible conda environment for the master-thesis d3rlpy fork.
+#
+# Reproduces the working "d3rlpy_dev_final_py310" env, with ONE correction:
+# ale-py 0.8.1 -> 0.10.x. The old 0.8.1 is incompatible with gymnasium 1.0.0
+# (gymnasium 1.0 requires ale-py's new top-level AtariEnv plugin entry point,
+# which 0.8.1 lacks -> "module 'ale_py.env' has no attribute 'AtariEnv'" when
+# recovering the Atari/Pong environment via minari). Everything else is pinned
+# to the exact versions that produced the working CartPole + sepsis runs.
+#
+# Build (does NOT touch the existing env):
+#   conda env create -n d3rlpy_repro_py310 -f environment.yml
+#   conda run -n d3rlpy_repro_py310 pip install -e .   # install the d3rlpy fork itself
+#
+# Atari ROMs (needed for Pong env recovery): AutoROM ships them; if the Pong
+# env still cannot find its ROM after install, run once:
+#   conda run -n d3rlpy_repro_py310 AutoROM --accept-license
+name: d3rlpy_repro_py310
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10.17
+  - pip
+  - pip:
+      # --- core (exact versions from the working env) ---
+      - torch==2.10.0
+      - numpy==1.26.4          # <2 required by this d3rlpy fork
+      - pandas==2.3.3
+      - scikit-learn==1.7.2
+      - gymnasium==1.0.0
+      - gym==0.26.2             # legacy gym: still imported top-level in d3rlpy/datasets.py, types.py
+      - structlog==25.5.0
+      - dataclasses-json==0.6.7
+      # --- Atari stack (ale-py CORRECTED to match gymnasium 1.0.0) ---
+      - "ale-py>=0.10.1,<0.11"
+      - AutoROM==0.6.1
+      - AutoROM.accept-rom-license==0.6.1
+      # --- datasets ---
+      - minari==0.5.3
+      - gymnasium-robotics==1.3.1
+      # --- remaining d3rlpy runtime deps (from requirements.txt) ---
+      - tqdm>=4.66.1
+      - h5py>=2.10.0
+      - click>=8.0.1
+      - typing-extensions>=4.8.0
+      - colorama>=0.4.4
+      # NOTE: d3rlpy itself is installed separately with `pip install -e .`
+      # so the local fork (not PyPI d3rlpy) is used.
