@@ -105,9 +105,16 @@ PYEOF
 # just with 5 steps instead of 100k. Catches data/column/scaler/dispatch bugs
 # that imports alone miss — the class of bug that has repeatedly reached the
 # A100 queue. Skip with SKIP_SMOKE=1 for a fast import-only check.
+# Device for the smoke runs. Default cpu (runs anywhere, no GPU allocation).
+# Set SMOKE_DEVICE=cuda:0 to exercise the real GPU path in an interactive A100
+# session before submitting the batch — catches CUDA/OOM/kernel issues the CPU
+# smoke cannot (device transfer, pixel-CNN on GPU, real-batch memory footprint).
+SMOKE_DEVICE="${SMOKE_DEVICE:-cpu}"
+
 if [ "${SKIP_SMOKE:-0}" = "1" ]; then
     echo "Skipping smoke runs (SKIP_SMOKE=1)."
 else
+    echo "Smoke device: $SMOKE_DEVICE"
     ALGOS="discrete_bc discrete_cql discrete_dt discrete_tacr"
     SMOKE_FAILED=0
 
@@ -115,19 +122,19 @@ else
         echo ""
         echo "--- smoke: $ALGO cartpole ---"
         "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
-            --algo "$ALGO" --dataset cartpole --seed 0 --device cpu --smoke \
+            --algo "$ALGO" --dataset cartpole --seed 0 --device "$SMOKE_DEVICE" --smoke \
             && echo "OK: $ALGO cartpole" || { echo "FAIL: $ALGO cartpole" >&2; SMOKE_FAILED=1; }
 
         echo ""
         echo "--- smoke: $ALGO sepsis (terminal) ---"
         "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
-            --algo "$ALGO" --seed 0 --fold 0 --device cpu --reward_mode terminal --smoke \
+            --algo "$ALGO" --seed 0 --fold 0 --device "$SMOKE_DEVICE" --reward_mode terminal --smoke \
             && echo "OK: $ALGO sepsis terminal" || { echo "FAIL: $ALGO sepsis terminal" >&2; SMOKE_FAILED=1; }
 
         echo ""
         echo "--- smoke: $ALGO sepsis (mixed) ---"
         "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
-            --algo "$ALGO" --seed 0 --fold 0 --device cpu --reward_mode mixed --smoke \
+            --algo "$ALGO" --seed 0 --fold 0 --device "$SMOKE_DEVICE" --reward_mode mixed --smoke \
             && echo "OK: $ALGO sepsis mixed" || { echo "FAIL: $ALGO sepsis mixed" >&2; SMOKE_FAILED=1; }
     done
 
@@ -136,7 +143,7 @@ else
     echo ""
     echo "--- smoke: discrete_tacr pong_minari ---"
     "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
-        --algo discrete_tacr --dataset pong_minari --seed 0 --device cpu --smoke \
+        --algo discrete_tacr --dataset pong_minari --seed 0 --device "$SMOKE_DEVICE" --smoke \
         && echo "OK: discrete_tacr pong_minari" || { echo "FAIL: discrete_tacr pong_minari" >&2; SMOKE_FAILED=1; }
 
     if [ "$SMOKE_FAILED" = "1" ]; then
