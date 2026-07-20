@@ -108,6 +108,7 @@ def run_fqe(
     reward_mode: str,
     device: str,
     experiment_name: str,
+    fqe_n_steps: int = FQE_N_STEPS,
 ) -> float:
     """Fit FQE on the TRAINING fold, evaluate on the held-out TEST fold.
 
@@ -129,8 +130,8 @@ def run_fqe(
 
     fqe.fit(
         train_dataset,
-        n_steps=FQE_N_STEPS,
-        n_steps_per_epoch=1_000,
+        n_steps=fqe_n_steps,
+        n_steps_per_epoch=min(1_000, fqe_n_steps),
         experiment_name=f"fqe_{experiment_name}",
         logger_adapter=UnifiedFileAdapterFactory(),
         show_progress=False,
@@ -176,7 +177,20 @@ def main() -> None:
     parser.add_argument("--n_steps", type=int, default=N_STEPS)
     parser.add_argument("--skip_fqe", action="store_true",
                         help="Skip FQE eval (faster, use for debugging)")
+    parser.add_argument("--smoke", action="store_true",
+                        help="Smoke test: tiny n_steps for train + FQE, to verify "
+                             "the full pipeline runs end-to-end without burning "
+                             "cluster time. Does NOT produce usable results.")
     args = parser.parse_args()
+
+    train_n_steps = args.n_steps
+    fqe_n_steps = FQE_N_STEPS
+    steps_per_epoch = N_STEPS_PER_EPOCH
+    if args.smoke:
+        train_n_steps = 5
+        fqe_n_steps = 5
+        steps_per_epoch = 5
+        print(">>> SMOKE TEST MODE: 5 train steps, 5 FQE steps (results not usable)")
 
     d3rlpy.seed(args.seed)
 
@@ -203,9 +217,9 @@ def main() -> None:
 
     algo.fit(
         train_dataset,
-        n_steps=args.n_steps,
-        n_steps_per_epoch=N_STEPS_PER_EPOCH,
-        save_interval=N_STEPS_PER_EPOCH * 10,
+        n_steps=train_n_steps,
+        n_steps_per_epoch=steps_per_epoch,
+        save_interval=steps_per_epoch * 10,
         experiment_name=experiment_name,
         logger_adapter=UnifiedFileAdapterFactory(),
         show_progress=False,
@@ -217,7 +231,11 @@ def main() -> None:
 
     if not args.skip_fqe:
         print("Running FQE (train fold fit, test fold eval) ...")
-        run_fqe(algo, train_dataset, test_dataset, args.algo, args.reward_mode, args.device, experiment_name)
+        run_fqe(algo, train_dataset, test_dataset, args.algo, args.reward_mode,
+                args.device, experiment_name, fqe_n_steps=fqe_n_steps)
+
+    if args.smoke:
+        print(">>> SMOKE TEST PASSED: full pipeline ran end-to-end")
 
 
 if __name__ == "__main__":

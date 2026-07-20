@@ -182,6 +182,10 @@ def main() -> None:
                         help="Override default n_steps for this dataset")
     parser.add_argument("--logdir", default=None,
                         help="Experiment name (default: algo_dataset_seedN)")
+    parser.add_argument("--smoke", action="store_true",
+                        help="Smoke test: tiny n_steps to verify the full pipeline "
+                             "(dataset load, model build, fit, online eval) runs "
+                             "end-to-end. Does NOT produce usable results.")
     args = parser.parse_args()
 
     d3rlpy.seed(args.seed)
@@ -193,22 +197,64 @@ def main() -> None:
 
     hp = HPARAMS[args.dataset]
     n_steps = args.n_steps or hp["n_steps"]
+    steps_per_epoch = hp["n_steps_per_epoch"]
+    if args.smoke:
+        n_steps = 5
+        steps_per_epoch = 5
+        print(">>> SMOKE TEST MODE: 5 steps (results not usable)")
     experiment_name = args.logdir or f"{args.algo}_{args.dataset}_seed{args.seed}"
 
     print(f"algo={args.algo}  dataset={args.dataset}  seed={args.seed}  n_steps={n_steps}")
     print(f"python={sys.executable}  device={args.device}")
 
-    algo.fit(
-        dataset,
-        n_steps=n_steps,
-        n_steps_per_epoch=hp["n_steps_per_epoch"],
-        eval_env=env,
-        eval_target_return=hp["target_return"],
-        save_interval=hp["n_steps_per_epoch"] * 10,
-        experiment_name=experiment_name,
-        logger_adapter=UnifiedFileAdapterFactory(),
-        show_progress=False,
-    )
+    # Online-rollout eval is wired differently for the two algo families:
+    #  - transformer algos (DT/TACR) take eval_env/eval_target_return directly
+    #    in fit() (return-conditioned rollout needs the target return).
+    #  - Q-learning algos (BC/CQL) have no such fit() kwargs; they use the
+    #    evaluators= dict with an EnvironmentEvaluator instead.
+    is_transformer = args.algo in ("discrete_dt", "discrete_tacr")
+    if is_transformer:
+        algo.fit(
+            dataset,
+            n_steps=n_steps,
+            n_steps_per_epoch=steps_per_epoch,
+            eval_env=env,
+            eval_target_return=hp["target_return"],
+            save_interval=steps_per_epoch * 10,
+            experiment_name=experiment_name,
+            logger_adapter=UnifiedFileAdapterFactory(),
+            show_progress=False,
+        )
+    else:
+        from d3rlpy.metrics import EnvironmentEvaluator
+
+        # This fork's EnvironmentEvaluator / evaluate_qlearning_with_environment
+        # returns a dict of reward statistics, but the logger expects each
+        # evaluator to return a scalar (it does sum(buffer)/len(buffer)). Wrap it
+        # to extract the mean episodic return.
+        class _MeanReturnEvaluator:
+            def __init__(self, env, n_trials):
+                self._inner = EnvironmentEvaluator(env, n_trials=n_trials)
+
+            def __call__(self, algo, dataset):
+                result = self._inner(algo, dataset)
+                if isinstance(result, dict):
+                    return float(result["episode_mean_reward"])
+                return float(result)
+
+        algo.fit(
+            dataset,
+            n_steps=n_steps,
+            n_steps_per_epoch=steps_per_epoch,
+            evaluators={"environment": _MeanReturnEvaluator(env, n_trials=100)},
+            save_interval=steps_per_epoch * 10,
+            experiment_name=experiment_name,
+            logger_adapter=UnifiedFileAdapterFactory(),
+            show_progress=False,
+        )
+
+    if args.smoke:
+        print(">>> SMOKE TEST PASSED: full pipeline ran end-to-end")
 
 
 if __name__ == "__main__":

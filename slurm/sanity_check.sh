@@ -99,5 +99,52 @@ from d3rlpy.sepsis_loader import get_sepsis_fold
 print("OK: d3rlpy + FQE + sepsis_loader imports succeed")
 PYEOF
 
+# ── smoke-run the REAL training entry points (tiny steps, CPU) ────────────────
+# This drives train_sepsis.py / train_benchmarks.py exactly as the batch jobs
+# do, on real data, through the full pipeline (load -> build -> fit -> eval/FQE),
+# just with 5 steps instead of 100k. Catches data/column/scaler/dispatch bugs
+# that imports alone miss — the class of bug that has repeatedly reached the
+# A100 queue. Skip with SKIP_SMOKE=1 for a fast import-only check.
+if [ "${SKIP_SMOKE:-0}" = "1" ]; then
+    echo "Skipping smoke runs (SKIP_SMOKE=1)."
+else
+    ALGOS="discrete_bc discrete_cql discrete_dt discrete_tacr"
+    SMOKE_FAILED=0
+
+    for ALGO in $ALGOS; do
+        echo ""
+        echo "--- smoke: $ALGO cartpole ---"
+        "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
+            --algo "$ALGO" --dataset cartpole --seed 0 --device cpu --smoke \
+            && echo "OK: $ALGO cartpole" || { echo "FAIL: $ALGO cartpole" >&2; SMOKE_FAILED=1; }
+
+        echo ""
+        echo "--- smoke: $ALGO sepsis (terminal) ---"
+        "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
+            --algo "$ALGO" --seed 0 --fold 0 --device cpu --reward_mode terminal --smoke \
+            && echo "OK: $ALGO sepsis terminal" || { echo "FAIL: $ALGO sepsis terminal" >&2; SMOKE_FAILED=1; }
+
+        echo ""
+        echo "--- smoke: $ALGO sepsis (mixed) ---"
+        "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
+            --algo "$ALGO" --seed 0 --fold 0 --device cpu --reward_mode mixed --smoke \
+            && echo "OK: $ALGO sepsis mixed" || { echo "FAIL: $ALGO sepsis mixed" >&2; SMOKE_FAILED=1; }
+    done
+
+    # Pong (minari) is heavy to load; smoke-test once with the transformer actor
+    # (the CNN-embedding path most likely to break), not for every algo.
+    echo ""
+    echo "--- smoke: discrete_tacr pong_minari ---"
+    "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
+        --algo discrete_tacr --dataset pong_minari --seed 0 --device cpu --smoke \
+        && echo "OK: discrete_tacr pong_minari" || { echo "FAIL: discrete_tacr pong_minari" >&2; SMOKE_FAILED=1; }
+
+    if [ "$SMOKE_FAILED" = "1" ]; then
+        echo ""
+        echo "=== SMOKE RUNS FAILED — do NOT submit batch jobs ===" >&2
+        exit 1
+    fi
+fi
+
 echo ""
 echo "=== ALL CHECKS PASSED ==="
