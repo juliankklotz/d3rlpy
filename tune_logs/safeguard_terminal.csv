@@ -1,0 +1,9 @@
+algo,hp,val_fqe,stable,error
+discrete_bc,{'learning_rate': 0.001},-2.7461172039243267,True,
+discrete_bc,{'learning_rate': 0.0003},-16.654042379001485,True,
+discrete_cql,{'alpha': 1.0},-8.486449421457738,True,
+discrete_cql,{'alpha': 4.0},5.324005551718189,True,
+discrete_dt,"{'context_size': 20, 'num_heads': 4, 'num_layers': 3}",1.9458594558033295,True,
+discrete_dt,"{'context_size': 20, 'num_heads': 4, 'num_layers': 6}",-1.9118408776551516,True,
+discrete_tacr,"{'context_size': 20, 'num_heads': 4, 'num_layers': 3, 'alpha': 0.5}",2.2992056431402825,True,
+discrete_tacr,"{'context_size': 20, 'num_heads': 4, 'num_layers': 3, 'alpha': 2.5}",-0.7412077363159864,True,
