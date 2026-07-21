@@ -34,6 +34,14 @@ mkdir -p "$REPO_DIR/logs"
 ALGOS=(discrete_bc discrete_cql discrete_dt discrete_tacr)
 SEEDS=(0 1 2)
 
+# Partition/QOS override: template defaults to A100 (often fully allocated).
+# Set PARTITION/QOS to target A40 instead, e.g.
+#   PARTITION=zen2_0256_a40x2 QOS=zen2_0256_a40x2 bash slurm/submit_all_jobs.sh
+SBATCH_OVERRIDE=()
+[ -n "${PARTITION:-}" ] && SBATCH_OVERRIDE+=(--partition="$PARTITION")
+[ -n "${QOS:-}" ] && SBATCH_OVERRIDE+=(--qos="$QOS")
+[ -n "${PARTITION:-}" ] && echo "Targeting partition: $PARTITION"
+
 # Short codes so `squeue`'s 8-char-truncated NAME column stays distinguishable
 declare -A ALGO_ABBR=(
     [discrete_bc]=bc
@@ -50,7 +58,7 @@ for ALGO in "${ALGOS[@]}"; do
     for SEED in "${SEEDS[@]}"; do
         JOB_NAME="${ALGO_ABBR[$ALGO]}_cp_s${SEED}"
         if [ -z "$DRY_RUN" ]; then
-            JOB_ID=$(sbatch --job-name="$JOB_NAME" "$TEMPLATE" "$ALGO" cartpole "$SEED" | awk '{print $NF}')
+            JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" cartpole "$SEED" | awk '{print $NF}')
             echo "CartPole $ALGO seed$SEED ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
         else
             echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO cartpole $SEED"
@@ -65,7 +73,7 @@ for ALGO in "${ALGOS[@]}"; do
     for SEED in "${SEEDS[@]}"; do
         JOB_NAME="${ALGO_ABBR[$ALGO]}_pg_s${SEED}"
         if [ -z "$DRY_RUN" ]; then
-            JOB_ID=$(sbatch --job-name="$JOB_NAME" "$TEMPLATE" "$ALGO" pong_minari "$SEED" | awk '{print $NF}')
+            JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" pong_minari "$SEED" | awk '{print $NF}')
             echo "Pong $ALGO seed$SEED ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
         else
             echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO pong_minari $SEED"
@@ -83,7 +91,7 @@ else
         for SEED in "${SEEDS[@]}"; do
             JOB_NAME="${ALGO_ABBR[$ALGO]}_st_s${SEED}_f0"
             if [ -z "$DRY_RUN" ]; then
-                JOB_ID=$(sbatch --job-name="$JOB_NAME" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
+                JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
                 echo "Sepsis-terminal $ALGO seed$SEED fold0 ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
             else
                 echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED 0"
@@ -99,7 +107,7 @@ else
             JOB_NAME="${ALGO_ABBR[$ALGO]}_sm_s${SEED}_f0"
             if [ -z "$DRY_RUN" ]; then
                 export SLURM_ARGS="--reward_mode mixed"
-                JOB_ID=$(sbatch --job-name="$JOB_NAME" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
+                JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
                 echo "Sepsis-mixed $ALGO seed$SEED fold0 ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
                 unset SLURM_ARGS
             else

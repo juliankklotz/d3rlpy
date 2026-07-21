@@ -36,9 +36,17 @@ DATASET_SHORT="${DATASET_ABBR[$DATASET]:-$DATASET}"
 JOB_NAME="${ALGO_SHORT}_${DATASET_SHORT}_s${SEED}"
 [ "$DATASET" = "sepsis" ] && JOB_NAME="${JOB_NAME}_f${FOLD}"
 
+# Partition/QOS override: the template defaults to A100, but that partition is
+# often fully allocated (long queue). Set PARTITION/QOS to target A40 instead,
+# e.g. PARTITION=zen2_0256_a40x2 QOS=zen2_0256_a40x2. sbatch CLI flags override
+# the #SBATCH directives in the template.
+SBATCH_OVERRIDE=()
+[ -n "${PARTITION:-}" ] && SBATCH_OVERRIDE+=(--partition="$PARTITION")
+[ -n "${QOS:-}" ] && SBATCH_OVERRIDE+=(--qos="$QOS")
+
 # cd into REPO_DIR before sbatch: SLURM_SUBMIT_DIR (used by train_template.sh
 # to locate itself, since ${BASH_SOURCE[0]} breaks under SLURM's spool copy)
 # is set to the cwd at submit time, not this script's own location.
-JOB_ID=$(cd "$REPO_DIR" && sbatch --job-name="$JOB_NAME" "$REPO_DIR/slurm/train_template.sh" "$ALGO" "$DATASET" "$SEED" "$FOLD" | awk '{print $NF}')
+JOB_ID=$(cd "$REPO_DIR" && sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$REPO_DIR/slurm/train_template.sh" "$ALGO" "$DATASET" "$SEED" "$FOLD" | awk '{print $NF}')
 
-echo "Submitted $JOB_NAME: $JOB_ID"
+echo "Submitted $JOB_NAME: $JOB_ID${PARTITION:+  (partition=$PARTITION)}"
