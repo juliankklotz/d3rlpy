@@ -1,6 +1,8 @@
 #!/bin/bash
 # Submit all benchmark and sepsis training jobs.
-# 48 jobs total: CartPole (12) + Pong (12) + Sepsis-terminal (12) + Sepsis-mixed (12)
+# CartPole (12) + Pong (12) = 24 benchmark jobs.
+# Sepsis with 5-fold CV: 4 algos x 3 seeds x 5 folds x 2 reward modes = 120 jobs.
+# Full run (SKIP_SEPSIS=0) = 144 jobs. Override folds with FOLDS="0 1 2".
 #
 # Usage:
 #   bash slurm/submit_all_jobs.sh
@@ -82,38 +84,47 @@ for ALGO in "${ALGOS[@]}"; do
     done
 done
 
+# Sepsis 5-fold cross-validation. FOLDS overridable, e.g. FOLDS="0 1 2" for 3-fold.
+FOLDS="${FOLDS:-0 1 2 3 4}"
+
 if [ "$SKIP_SEPSIS" = "1" ]; then
     echo "Skipping Sepsis jobs (SKIP_SEPSIS=1, default). Set SKIP_SEPSIS=0 to include them."
 else
-    # ── Sepsis (terminal, fold 0 only — CV sweep not yet enabled) ─────────────
+    echo "Sepsis folds: $FOLDS"
+
+    # ── Sepsis (terminal), all folds ──────────────────────────────────────────
     echo "Submitting Sepsis (terminal reward) jobs..."
     for ALGO in "${ALGOS[@]}"; do
         for SEED in "${SEEDS[@]}"; do
-            JOB_NAME="${ALGO_ABBR[$ALGO]}_st_s${SEED}_f0"
-            if [ -z "$DRY_RUN" ]; then
-                JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
-                echo "Sepsis-terminal $ALGO seed$SEED fold0 ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
-            else
-                echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED 0"
-            fi
-            count=$((count + 1))
+            for FOLD in $FOLDS; do
+                JOB_NAME="${ALGO_ABBR[$ALGO]}_st_s${SEED}_f${FOLD}"
+                if [ -z "$DRY_RUN" ]; then
+                    JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" "$FOLD" | awk '{print $NF}')
+                    echo "Sepsis-terminal $ALGO seed$SEED fold$FOLD ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
+                else
+                    echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED $FOLD"
+                fi
+                count=$((count + 1))
+            done
         done
     done
 
-    # ── Sepsis (mixed, fold 0 only — CV sweep not yet enabled) ────────────────
+    # ── Sepsis (mixed), all folds ─────────────────────────────────────────────
     echo "Submitting Sepsis (mixed reward) jobs..."
     for ALGO in "${ALGOS[@]}"; do
         for SEED in "${SEEDS[@]}"; do
-            JOB_NAME="${ALGO_ABBR[$ALGO]}_sm_s${SEED}_f0"
-            if [ -z "$DRY_RUN" ]; then
-                export SLURM_ARGS="--reward_mode mixed"
-                JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" 0 | awk '{print $NF}')
-                echo "Sepsis-mixed $ALGO seed$SEED fold0 ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
-                unset SLURM_ARGS
-            else
-                echo "[DRY] SLURM_ARGS='--reward_mode mixed' sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED 0"
-            fi
-            count=$((count + 1))
+            for FOLD in $FOLDS; do
+                JOB_NAME="${ALGO_ABBR[$ALGO]}_sm_s${SEED}_f${FOLD}"
+                if [ -z "$DRY_RUN" ]; then
+                    export SLURM_ARGS="--reward_mode mixed"
+                    JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" "$FOLD" | awk '{print $NF}')
+                    echo "Sepsis-mixed $ALGO seed$SEED fold$FOLD ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
+                    unset SLURM_ARGS
+                else
+                    echo "[DRY] SLURM_ARGS='--reward_mode mixed' sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED $FOLD"
+                fi
+                count=$((count + 1))
+            done
         done
     done
 fi
