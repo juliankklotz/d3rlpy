@@ -111,40 +111,52 @@ PYEOF
 # smoke cannot (device transfer, pixel-CNN on GPU, real-batch memory footprint).
 SMOKE_DEVICE="${SMOKE_DEVICE:-cpu}"
 
+# SMOKE_ONLY restricts which datasets run: "cartpole", "sepsis", "pong", or
+# empty (all). Useful to re-test just one dataset without re-running all 12,
+# e.g. SMOKE_ONLY=pong after scaling up interactive RAM.
+SMOKE_ONLY="${SMOKE_ONLY:-}"
+_want() { [ -z "$SMOKE_ONLY" ] || [ "$SMOKE_ONLY" = "$1" ]; }
+
 if [ "${SKIP_SMOKE:-0}" = "1" ]; then
     echo "Skipping smoke runs (SKIP_SMOKE=1)."
 else
-    echo "Smoke device: $SMOKE_DEVICE"
+    echo "Smoke device: $SMOKE_DEVICE${SMOKE_ONLY:+  (only: $SMOKE_ONLY)}"
     ALGOS="discrete_bc discrete_cql discrete_dt discrete_tacr"
     SMOKE_FAILED=0
 
     for ALGO in $ALGOS; do
-        echo ""
-        echo "--- smoke: $ALGO cartpole ---"
-        "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
-            --algo "$ALGO" --dataset cartpole --seed 0 --device "$SMOKE_DEVICE" --smoke \
-            && echo "OK: $ALGO cartpole" || { echo "FAIL: $ALGO cartpole" >&2; SMOKE_FAILED=1; }
+        if _want cartpole; then
+            echo ""
+            echo "--- smoke: $ALGO cartpole ---"
+            "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
+                --algo "$ALGO" --dataset cartpole --seed 0 --device "$SMOKE_DEVICE" --smoke \
+                && echo "OK: $ALGO cartpole" || { echo "FAIL: $ALGO cartpole" >&2; SMOKE_FAILED=1; }
+        fi
 
-        echo ""
-        echo "--- smoke: $ALGO sepsis (terminal) ---"
-        "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
-            --algo "$ALGO" --seed 0 --fold 0 --device "$SMOKE_DEVICE" --reward_mode terminal --smoke \
-            && echo "OK: $ALGO sepsis terminal" || { echo "FAIL: $ALGO sepsis terminal" >&2; SMOKE_FAILED=1; }
+        if _want sepsis; then
+            echo ""
+            echo "--- smoke: $ALGO sepsis (terminal) ---"
+            "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
+                --algo "$ALGO" --seed 0 --fold 0 --device "$SMOKE_DEVICE" --reward_mode terminal --smoke \
+                && echo "OK: $ALGO sepsis terminal" || { echo "FAIL: $ALGO sepsis terminal" >&2; SMOKE_FAILED=1; }
 
-        echo ""
-        echo "--- smoke: $ALGO sepsis (mixed) ---"
-        "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
-            --algo "$ALGO" --seed 0 --fold 0 --device "$SMOKE_DEVICE" --reward_mode mixed --smoke \
-            && echo "OK: $ALGO sepsis mixed" || { echo "FAIL: $ALGO sepsis mixed" >&2; SMOKE_FAILED=1; }
+            echo ""
+            echo "--- smoke: $ALGO sepsis (mixed) ---"
+            "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
+                --algo "$ALGO" --seed 0 --fold 0 --device "$SMOKE_DEVICE" --reward_mode mixed --smoke \
+                && echo "OK: $ALGO sepsis mixed" || { echo "FAIL: $ALGO sepsis mixed" >&2; SMOKE_FAILED=1; }
+        fi
     done
 
-    # Pong (minari) is heavy to load; smoke-test once with the transformer actor
-    # (the CNN-embedding path most likely to break), not for every algo.
-    echo ""
-    echo "--- smoke: discrete_tacr pong_minari ---"
-    "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
-        --algo discrete_tacr --dataset pong_minari --seed 0 --device "$SMOKE_DEVICE" --smoke \
-        && echo "OK: discrete_tacr pong_minari" || { echo "FAIL: discrete_tacr pong_minari" >&2; SMOKE_FAILED=1; }
+    if _want pong; then
+        # Pong (minari) is heavy to load; smoke-test once with the transformer actor
+        # (the CNN-embedding path most likely to break), not for every algo.
+        echo ""
+        echo "--- smoke: discrete_tacr pong_minari ---"
+        "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
+            --algo discrete_tacr --dataset pong_minari --seed 0 --device "$SMOKE_DEVICE" --smoke \
+            && echo "OK: discrete_tacr pong_minari" || { echo "FAIL: discrete_tacr pong_minari" >&2; SMOKE_FAILED=1; }
+    fi
 
     if [ "$SMOKE_FAILED" = "1" ]; then
         echo ""
