@@ -11,16 +11,20 @@ Usage:
     SEPSIS_DATA_DIR=/data/sepsis python training/train_sepsis.py --algo discrete_cql --seed 2 --fold 0
 """
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
+from typing import Optional
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for fqe_policy_value
 
 import d3rlpy
 import d3rlpy.preprocessing
 import d3rlpy.models
 from d3rlpy.logging import UnifiedFileAdapterFactory
 from d3rlpy.ope import DiscreteFQE, DiscreteFQETrajectory, FQEConfig
-from d3rlpy.sepsis_loader import get_sepsis_fold
+from d3rlpy.sepsis_loader import get_sepsis_splits, get_sepsis_dev_buffer
 
 # Sepsis dataset constants
 N_ACTIONS = 25     # 5 fluid levels × 5 vasopressor levels
@@ -59,8 +63,11 @@ EVAL_RTG_BY_REWARD_MODE = {
 }
 
 
-def build_algo(algo_name: str, device: str) -> d3rlpy.base.LearnableBase:
-    hp = HPARAMS[algo_name]
+def build_algo(algo_name: str, device: str, hp_override: Optional[dict] = None) -> d3rlpy.base.LearnableBase:
+    # base config + tuned/searched overlay (hp_override wins on key collisions)
+    hp = dict(HPARAMS[algo_name])
+    if hp_override:
+        hp.update(hp_override)
     obs_scaler = d3rlpy.preprocessing.StandardObservationScaler()
 
     if algo_name == "discrete_bc":
@@ -102,20 +109,26 @@ def build_algo(algo_name: str, device: str) -> d3rlpy.base.LearnableBase:
 
 def run_fqe(
     algo: d3rlpy.base.LearnableBase,
-    train_dataset: d3rlpy.dataset.ReplayBuffer,
-    test_dataset: d3rlpy.dataset.ReplayBuffer,
+    fqe_fit_dataset: d3rlpy.dataset.ReplayBuffer,
+    eval_dataset: d3rlpy.dataset.ReplayBuffer,
     algo_name: str,
     reward_mode: str,
     device: str,
     experiment_name: str,
     fqe_n_steps: int = FQE_N_STEPS,
 ) -> float:
-    """Fit FQE on the TRAINING fold, evaluate on the held-out TEST fold.
+    """Fit FQE on `fqe_fit_dataset`, report the policy value on `eval_dataset`.
 
-    FQE itself must be fit on data (any offline data works for fitting the
-    Q-function), but the reported estimate must reflect generalisation, so
-    the Q-values are predicted for transitions drawn from the test fold.
+    The reported metric is the thesis section 5.5.2 objective (see
+    training/fqe_policy_value.py): the FQE policy value averaged over the
+    held-out trajectories, evaluated at each trajectory's INITIAL state under
+    the POLICY's action distribution — NOT the earlier per-transition average
+    over the logged clinician actions (which measured the critic's opinion of
+    the clinician, not the value of pi).
     """
+    import numpy as np
+    from fqe_policy_value import fqe_policy_value_per_trajectory
+
     is_transformer = algo_name in ("discrete_dt", "discrete_tacr")
     target_rtg = EVAL_RTG_BY_REWARD_MODE[reward_mode] if is_transformer else None
 
@@ -129,7 +142,7 @@ def run_fqe(
         fit_kwargs = dict()
 
     fqe.fit(
-        train_dataset,
+        fqe_fit_dataset,
         n_steps=fqe_n_steps,
         n_steps_per_epoch=min(1_000, fqe_n_steps),
         experiment_name=f"fqe_{experiment_name}",
@@ -138,26 +151,25 @@ def run_fqe(
         **fit_kwargs,
     )
 
-    # Estimate Q-value on the held-out TEST fold (generalisation, not memorisation)
-    import numpy as np
-
-    obs_list, action_list = [], []
-    for episode in test_dataset.episodes:
-        obs = episode.observations
-        acts = episode.actions
-        if isinstance(obs, np.ndarray):
-            obs_list.append(obs)
-            action_list.append(acts)
-
-    if not obs_list:
+    # Correct policy-value metric: per-trajectory V_hat(pi) at initial states.
+    v = fqe_policy_value_per_trajectory(
+        fqe, algo, eval_dataset, algo_name, target_return=target_rtg
+    )
+    if len(v) == 0:
         return float("nan")
-
-    all_obs = np.concatenate(obs_list, axis=0)
-    all_acts = np.concatenate(action_list, axis=0).squeeze(-1)
-    q_values = fqe.predict_value(all_obs, all_acts)
-    mean_q = float(np.mean(q_values))
-    print(f"FQE mean Q-value (test fold): {mean_q:.4f}  (n={len(all_obs)} transitions)")
-    return mean_q
+    v_hat = float(np.mean(v))
+    print(
+        f"FQE policy value V_hat={v_hat:.4f} +/- {float(np.std(v)):.4f} "
+        f"(n={len(v)} trajectories)"
+    )
+    # persist per-trajectory values for later aggregation (mean/CI, paired tests)
+    try:
+        import os
+        os.makedirs("fqe_values", exist_ok=True)
+        np.save(f"fqe_values/{experiment_name}_vpertraj.npy", v)
+    except Exception as e:
+        print(f"  (could not save per-trajectory values: {e})")
+    return v_hat
 
 
 def main() -> None:
@@ -165,16 +177,28 @@ def main() -> None:
     parser.add_argument("--algo", required=True,
                         choices=["discrete_bc", "discrete_cql", "discrete_dt", "discrete_tacr"])
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--fold", type=int, default=0,
-                        help="Test fold index in [0, n_folds)")
-    parser.add_argument("--n_folds", type=int, default=N_FOLDS)
+    parser.add_argument("--mode", default="final", choices=["tune", "final"],
+                        help="tune: fit on dev-train, eval on VAL (for HP selection). "
+                             "final: fit on full DEV, eval ONCE on the locked TEST set.")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--data_dir", default=None,
                         help="Path to MIMIC-IV sepsis CSV (default: $SEPSIS_DATA_DIR)")
     parser.add_argument("--reward_mode", default="terminal",
                         choices=["terminal", "dense", "mixed"],
                         help="terminal: ±1 survival/death; dense: -SOFA each step; mixed: 0.5*SOFA-delta + ±15 terminal")
+    parser.add_argument("--test_frac", type=float, default=0.2,
+                        help="Fraction of stays locked as the final test set.")
+    parser.add_argument("--val_frac", type=float, default=0.2,
+                        help="Fraction of the DEV set used as validation (tune mode).")
+    parser.add_argument("--split_seed", type=int, default=0,
+                        help="Seed fixing the dev/test lock (same across all algos/seeds).")
     parser.add_argument("--n_steps", type=int, default=N_STEPS)
+    parser.add_argument("--hp_json", default=None,
+                        help="Path to tuned_configs.json; in final mode, loads the "
+                             "tuned HP for this algo+reward_mode. Ignored in tune mode.")
+    parser.add_argument("--hp_override", default=None,
+                        help="JSON string of HP overrides (used by the tuning script "
+                             "to inject a grid point). Wins over --hp_json.")
     parser.add_argument("--skip_fqe", action="store_true",
                         help="Skip FQE eval (faster, use for debugging)")
     parser.add_argument("--smoke", action="store_true",
@@ -199,24 +223,47 @@ def main() -> None:
         print("ERROR: set --data_dir or SEPSIS_DATA_DIR", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Loading sepsis dataset from {data_dir} (fold {args.fold}/{args.n_folds}) ...")
-    train_dataset, test_dataset = get_sepsis_fold(
-        data_dir=data_dir,
-        fold=args.fold,
-        n_splits=args.n_folds,
-        reward_mode=args.reward_mode,
-    )
-    print(f"  train: episodes={len(train_dataset.episodes)} transitions={train_dataset.transition_count}")
-    print(f"  test:  episodes={len(test_dataset.episodes)} transitions={test_dataset.transition_count}")
+    # Leakage-free 3-way split. The dev/test lock is fixed by --split_seed so the
+    # locked test set is IDENTICAL across every algorithm, reward, and run seed.
+    if args.mode == "tune":
+        print(f"[TUNE] dev-train fit, VAL eval ({args.reward_mode}) ...")
+        fit_dataset, eval_dataset, _locked_test = get_sepsis_splits(
+            data_dir=data_dir, test_frac=args.test_frac, holdout=True,
+            val_frac=args.val_frac, seed=args.split_seed, reward_mode=args.reward_mode,
+        )
+        eval_name = "val"
+    else:  # final
+        print(f"[FINAL] full-dev fit, LOCKED-TEST eval ({args.reward_mode}) ...")
+        fit_dataset, eval_dataset = get_sepsis_dev_buffer(
+            data_dir=data_dir, test_frac=args.test_frac, seed=args.split_seed,
+            reward_mode=args.reward_mode,
+        )
+        eval_name = "test"
+    print(f"  fit:  episodes={len(fit_dataset.episodes)} transitions={fit_dataset.transition_count}")
+    print(f"  {eval_name}: episodes={len(eval_dataset.episodes)} transitions={eval_dataset.transition_count}")
 
-    algo = build_algo(args.algo, args.device)
-    experiment_name = f"{args.algo}_sepsis_fold{args.fold}_seed{args.seed}"
+    # Resolve tuned/searched hyperparameters.
+    hp_override = None
+    if args.hp_override:
+        hp_override = json.loads(args.hp_override)
+        print(f"HP override (grid point): {hp_override}")
+    elif args.hp_json and args.mode == "final":
+        with open(args.hp_json) as f:
+            tuned = json.load(f)
+        hp_override = tuned.get(args.algo, {}).get(args.reward_mode)
+        if hp_override is None:
+            print(f"WARNING: no tuned HP for {args.algo}/{args.reward_mode} in {args.hp_json}; using defaults")
+        else:
+            print(f"Tuned HP for {args.algo}/{args.reward_mode}: {hp_override}")
 
-    print(f"algo={args.algo}  seed={args.seed}  fold={args.fold}  n_steps={args.n_steps}")
+    algo = build_algo(args.algo, args.device, hp_override=hp_override)
+    experiment_name = f"{args.algo}_sepsis_{args.mode}_{args.reward_mode}_seed{args.seed}"
+
+    print(f"algo={args.algo}  mode={args.mode}  seed={args.seed}  n_steps={train_n_steps}")
     print(f"python={sys.executable}  device={args.device}")
 
     algo.fit(
-        train_dataset,
+        fit_dataset,
         n_steps=train_n_steps,
         n_steps_per_epoch=steps_per_epoch,
         save_interval=steps_per_epoch * 10,
@@ -230,8 +277,8 @@ def main() -> None:
     print(f"Model saved: {model_path}")
 
     if not args.skip_fqe:
-        print("Running FQE (train fold fit, test fold eval) ...")
-        run_fqe(algo, train_dataset, test_dataset, args.algo, args.reward_mode,
+        print(f"Running FQE (fit on {args.mode}-fit set, eval on {eval_name}) ...")
+        run_fqe(algo, fit_dataset, eval_dataset, args.algo, args.reward_mode,
                 args.device, experiment_name, fqe_n_steps=fqe_n_steps)
 
     if args.smoke:

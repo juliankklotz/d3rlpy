@@ -23,6 +23,9 @@ from d3rlpy.dataset import (
 __all__ = [
     "get_sepsis",
     "get_sepsis_fold",
+    "get_sepsis_dev_test_ids",
+    "get_sepsis_splits",
+    "get_sepsis_dev_buffer",
     "OBSERVATION_COLUMNS",
     "compute_sofa_scores",
     "discretize_actions",
@@ -591,3 +594,188 @@ def get_sepsis_fold(
     )
 
     return train_buffer, test_buffer
+
+
+def _resolve_data_dir(data_dir: Optional[str]) -> str:
+    if data_dir is None:
+        if "SEPSIS_DATA_DIR" in os.environ:
+            data_dir = os.environ["SEPSIS_DATA_DIR"]
+        else:
+            repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            data_dir = os.path.join(repo_root, "data")
+    return data_dir
+
+
+def _load_cohort_ids_outcomes(data_dir: str) -> Tuple[np.ndarray, np.ndarray]:
+    """Return (icu_ids, outcomes) for the sepsis cohort, outcome = morta_90.
+
+    Outcome is the per-stay 90-day mortality (constant within a stay), taken
+    from mimic_dataset.csv restricted to the cohort — the same source get_sepsis
+    uses to build rewards, so stratification matches the labels actually trained on.
+    """
+    mimic_path = os.path.join(data_dir, "mimic_dataset.csv")
+    cohort_path = os.path.join(data_dir, "sepsis_cohort.csv")
+    if not os.path.exists(mimic_path) or not os.path.exists(cohort_path):
+        raise FileNotFoundError(f"MIMIC/cohort CSV not found in {data_dir}")
+
+    sepsis_cohort = pd.read_csv(cohort_path)
+    mimic_df = pd.read_csv(mimic_path, usecols=["icustayid", "morta_90"])
+    cohort_ids = set(sepsis_cohort["icustayid"].unique())
+    per_stay = (
+        mimic_df[mimic_df["icustayid"].isin(cohort_ids)]
+        .groupby("icustayid")["morta_90"]
+        .last()
+    )
+    return per_stay.index.to_numpy(), per_stay.to_numpy()
+
+
+def get_sepsis_dev_test_ids(
+    data_dir: Optional[str] = None,
+    test_frac: float = 0.2,
+    seed: int = 0,
+) -> Tuple[set, set, np.ndarray, np.ndarray]:
+    """Stratified development / locked-test ICU-stay ID split.
+
+    The test IDs are the LOCKED final test set — never used for hyperparameter
+    selection or early stopping. All hyperparameter tuning happens within the
+    development IDs only.
+
+    Args:
+        data_dir: sepsis data dir (defaults to SEPSIS_DATA_DIR / <repo>/data).
+        test_frac: fraction of stays held out as the locked test set.
+        seed: RNG seed for the stratified split (fixed => reproducible lock).
+
+    Returns:
+        (dev_ids, test_ids, dev_outcomes, test_outcomes)
+        dev_ids/test_ids are sets of icustayid; outcomes are aligned 0/1 arrays
+        for the dev/test ID arrays (order matches sorted split, not the sets).
+    """
+    from sklearn.model_selection import train_test_split
+
+    data_dir = _resolve_data_dir(data_dir)
+    icu_ids, outcomes = _load_cohort_ids_outcomes(data_dir)
+
+    dev_ids_arr, test_ids_arr, dev_out, test_out = train_test_split(
+        icu_ids, outcomes,
+        test_size=test_frac,
+        stratify=outcomes,
+        random_state=seed,
+    )
+    print(
+        f"Dev/test lock (seed={seed}, test_frac={test_frac}): "
+        f"dev {len(dev_ids_arr)} stays (died {int(dev_out.sum())}), "
+        f"LOCKED test {len(test_ids_arr)} stays (died {int(test_out.sum())})"
+    )
+    return set(dev_ids_arr.tolist()), set(test_ids_arr.tolist()), dev_out, test_out
+
+
+def get_sepsis_splits(
+    data_dir: Optional[str] = None,
+    test_frac: float = 0.2,
+    val_fold: int = 0,
+    n_val_folds: int = 5,
+    holdout: bool = True,
+    val_frac: float = 0.2,
+    seed: int = 0,
+    action_space: ActionSpace = ActionSpace.DISCRETE,
+    reward_mode: str = "terminal",
+    transition_picker: Optional[TransitionPickerProtocol] = None,
+    trajectory_slicer: Optional[TrajectorySlicerProtocol] = None,
+) -> Tuple[ReplayBuffer, ReplayBuffer, ReplayBuffer]:
+    """Load sepsis with a leakage-free 3-way split: dev-train / val / locked-test.
+
+    Structure (standard train/val/test):
+      1. Lock a stratified `test_frac` of stays as the final TEST set.
+      2. Within the remaining DEVELOPMENT stays, carve a VALIDATION set for
+         hyperparameter selection — either a single stratified holdout
+         (`holdout=True`, size `val_frac` of dev) or one fold of a stratified
+         k-fold (`holdout=False`, fold `val_fold` of `n_val_folds`).
+      3. Return (dev_train_buffer, val_buffer, test_buffer).
+
+    The test set is never touched for tuning. For the FINAL evaluation, retrain
+    on the full development set (use get_sepsis_dev_buffer) and evaluate once on
+    the returned test buffer.
+
+    All splits stratified by 90-day mortality; the dev/test lock is fixed by
+    `seed` so the locked test set is identical across every algorithm and run.
+    """
+    from sklearn.model_selection import StratifiedKFold, train_test_split
+
+    data_dir = _resolve_data_dir(data_dir)
+    dev_ids, test_ids, _dev_out, _test_out = get_sepsis_dev_test_ids(
+        data_dir=data_dir, test_frac=test_frac, seed=seed
+    )
+
+    # outcomes for the dev ids, for stratifying the inner val split
+    icu_ids, outcomes = _load_cohort_ids_outcomes(data_dir)
+    dev_mask = np.array([i in dev_ids for i in icu_ids])
+    dev_ids_arr = icu_ids[dev_mask]
+    dev_out_arr = outcomes[dev_mask]
+
+    if holdout:
+        train_ids_arr, val_ids_arr = train_test_split(
+            dev_ids_arr, test_size=val_frac, stratify=dev_out_arr, random_state=seed
+        )
+        print(
+            f"Dev holdout val (val_frac={val_frac}): "
+            f"train {len(train_ids_arr)} stays, val {len(val_ids_arr)} stays"
+        )
+    else:
+        if val_fold >= n_val_folds:
+            raise ValueError(f"val_fold={val_fold} must be < n_val_folds={n_val_folds}")
+        skf = StratifiedKFold(n_splits=n_val_folds, shuffle=True, random_state=seed)
+        tr_idx, va_idx = list(skf.split(dev_ids_arr, dev_out_arr))[val_fold]
+        train_ids_arr, val_ids_arr = dev_ids_arr[tr_idx], dev_ids_arr[va_idx]
+        print(
+            f"Dev {n_val_folds}-fold val (fold {val_fold}): "
+            f"train {len(train_ids_arr)} stays, val {len(val_ids_arr)} stays"
+        )
+
+    def _mk(ids):
+        return get_sepsis(
+            data_dir=data_dir, action_space=action_space, reward_mode=reward_mode,
+            transition_picker=transition_picker, trajectory_slicer=trajectory_slicer,
+            icu_id_filter=set(ids.tolist()) if hasattr(ids, "tolist") else set(ids),
+        )
+
+    print("Building dev-train split...")
+    dev_train = _mk(train_ids_arr)
+    print("Building val split...")
+    val = _mk(val_ids_arr)
+    print("Building LOCKED test split...")
+    test = _mk(test_ids)
+    return dev_train, val, test
+
+
+def get_sepsis_dev_buffer(
+    data_dir: Optional[str] = None,
+    test_frac: float = 0.2,
+    seed: int = 0,
+    action_space: ActionSpace = ActionSpace.DISCRETE,
+    reward_mode: str = "terminal",
+    transition_picker: Optional[TransitionPickerProtocol] = None,
+    trajectory_slicer: Optional[TrajectorySlicerProtocol] = None,
+) -> Tuple[ReplayBuffer, ReplayBuffer]:
+    """Return (full_dev_buffer, locked_test_buffer) for the FINAL evaluation.
+
+    After hyperparameters are frozen (tuned on the val split), retrain on the
+    ENTIRE development set and evaluate once on the locked test set. Uses the
+    same dev/test lock as get_sepsis_splits (same seed => same test set).
+    """
+    data_dir = _resolve_data_dir(data_dir)
+    dev_ids, test_ids, _dev_out, _test_out = get_sepsis_dev_test_ids(
+        data_dir=data_dir, test_frac=test_frac, seed=seed
+    )
+
+    def _mk(ids):
+        return get_sepsis(
+            data_dir=data_dir, action_space=action_space, reward_mode=reward_mode,
+            transition_picker=transition_picker, trajectory_slicer=trajectory_slicer,
+            icu_id_filter=set(ids),
+        )
+
+    print("Building full development split...")
+    dev = _mk(dev_ids)
+    print("Building LOCKED test split...")
+    test = _mk(test_ids)
+    return dev, test
