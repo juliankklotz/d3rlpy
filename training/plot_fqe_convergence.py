@@ -55,12 +55,18 @@ def main() -> None:
                         help="Save plot to file instead of showing interactively")
     args = parser.parse_args()
 
-    import matplotlib
-    if args.out:
-        matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(figsize=(9, 5))
+    # Plotting is optional — plateau DETECTION (the number you need) works without
+    # matplotlib. Only build a figure if matplotlib is importable.
+    plt = None
+    ax = None
+    try:
+        import matplotlib
+        if args.out:
+            matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        _fig, ax = plt.subplots(figsize=(9, 5))
+    except ModuleNotFoundError:
+        print("(matplotlib not installed — printing plateau detection only, no plot)")
 
     for exp in args.experiment:
         csv_path = os.path.join(args.logdir, exp, "metrics.csv")
@@ -76,34 +82,37 @@ def main() -> None:
         steps = df["step"].to_numpy()
         loss = df["loss"].to_numpy()
 
-        ax.plot(steps, loss, label=exp, alpha=0.4, linewidth=1)
-        smoothed = pd.Series(loss).rolling(args.window, min_periods=1).mean()
-        ax.plot(steps, smoothed, label=f"{exp} (smoothed)", linewidth=2)
+        if ax is not None:
+            ax.plot(steps, loss, label=exp, alpha=0.4, linewidth=1)
+            smoothed = pd.Series(loss).rolling(args.window, min_periods=1).mean()
+            ax.plot(steps, smoothed, label=f"{exp} (smoothed)", linewidth=2)
 
         plateau_step = detect_plateau(steps, loss, args.window, args.rel_tol)
         if plateau_step is not None:
-            ax.axvline(plateau_step, linestyle="--", alpha=0.5)
+            if ax is not None:
+                ax.axvline(plateau_step, linestyle="--", alpha=0.5)
             print(f"{exp}: plateaus at step {plateau_step} "
-                  f"(rel_tol={args.rel_tol}, window={args.window})")
+                  f"(rel_tol={args.rel_tol}, window={args.window}); "
+                  f"final loss={loss[-1]:.4f}")
             print(f"  -> suggest FQE_N_STEPS = {plateau_step} "
                   f"(or {int(plateau_step * 1.2)} with 20% safety margin)")
         else:
             print(f"{exp}: no plateau detected within logged range "
-                  f"(max step={steps.max()}). Loss still moving — "
-                  f"FQE_N_STEPS may need to be higher than what was logged.")
+                  f"(max step={steps.max()}, final loss={loss[-1]:.4f}). "
+                  f"Loss still moving — FQE_N_STEPS may need to be higher.")
 
-    ax.set_xlabel("FQE training step")
-    ax.set_ylabel("Critic loss (MSE Bellman error)")
-    ax.set_title("FQE convergence")
-    ax.legend(fontsize=8)
-    ax.grid(alpha=0.3)
-    fig.tight_layout()
-
-    if args.out:
-        fig.savefig(args.out, dpi=150)
-        print(f"Saved plot to {args.out}")
-    else:
-        plt.show()
+    if ax is not None:
+        ax.set_xlabel("FQE training step")
+        ax.set_ylabel("Critic loss (MSE Bellman error)")
+        ax.set_title("FQE convergence")
+        ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+        _fig.tight_layout()
+        if args.out:
+            _fig.savefig(args.out, dpi=150)
+            print(f"Saved plot to {args.out}")
+        else:
+            plt.show()
 
 
 if __name__ == "__main__":

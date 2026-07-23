@@ -45,4 +45,5 @@ dependencies:
       - click>=8.0.1
       - typing-extensions>=4.8.0
       - colorama>=0.4.4
+      - matplotlib>=3.7.0      # convergence / results plotting (not a training dep)
       # NOTE: d3rlpy itself installed separately (pip install -e . --no-deps).
