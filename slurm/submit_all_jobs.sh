@@ -1,8 +1,10 @@
 #!/bin/bash
 # Submit all benchmark and sepsis training jobs.
 # CartPole (12) + Pong (12) = 24 benchmark jobs.
-# Sepsis with 5-fold CV: 4 algos x 3 seeds x 5 folds x 2 reward modes = 120 jobs.
-# Full run (SKIP_SEPSIS=0) = 144 jobs. Override folds with FOLDS="0 1 2".
+# Sepsis FINAL runs (locked-test eval, tuned HPs): 4 algos x 3 seeds x 2 rewards
+#   = 24 jobs. Full run (SKIP_SEPSIS=0) = 48 jobs.
+# Sepsis hyperparameter tuning is a SEPARATE step (training/tune_sepsis.py),
+# not part of this matrix; run it first to produce tuned_configs.json.
 #
 # Usage:
 #   bash slurm/submit_all_jobs.sh
@@ -84,44 +86,32 @@ for ALGO in "${ALGOS[@]}"; do
     done
 done
 
-# Sepsis 5-fold cross-validation. FOLDS overridable, e.g. FOLDS="0 1 2" for 3-fold.
-FOLDS="${FOLDS:-0 1 2 3 4}"
+# Sepsis FINAL runs: fit on full development set, evaluate once on the locked
+# test set, per (algo, reward, seed). Hyperparameters come from HP_JSON (produced
+# by training/tune_sepsis.py). Tuning is run separately, not part of this matrix.
+HP_JSON="${HP_JSON:-tuned_configs.json}"
+REWARDS="${REWARDS:-terminal mixed}"
 
 if [ "$SKIP_SEPSIS" = "1" ]; then
     echo "Skipping Sepsis jobs (SKIP_SEPSIS=1, default). Set SKIP_SEPSIS=0 to include them."
 else
-    echo "Sepsis folds: $FOLDS"
-
-    # ── Sepsis (terminal), all folds ──────────────────────────────────────────
-    echo "Submitting Sepsis (terminal reward) jobs..."
-    for ALGO in "${ALGOS[@]}"; do
-        for SEED in "${SEEDS[@]}"; do
-            for FOLD in $FOLDS; do
-                JOB_NAME="${ALGO_ABBR[$ALGO]}_st_s${SEED}_f${FOLD}"
+    if [ ! -f "$REPO_DIR/$HP_JSON" ]; then
+        echo "WARNING: $HP_JSON not found — sepsis FINAL jobs will fall back to default HPs." >&2
+        echo "         Run training/tune_sepsis.py first to produce tuned configs." >&2
+    fi
+    echo "Submitting Sepsis FINAL jobs (rewards: $REWARDS, HP_JSON: $HP_JSON)..."
+    declare -A REW_ABBR=([terminal]=st [mixed]=sm [dense]=sd)
+    for REWARD in $REWARDS; do
+        for ALGO in "${ALGOS[@]}"; do
+            for SEED in "${SEEDS[@]}"; do
+                JOB_NAME="${ALGO_ABBR[$ALGO]}_${REW_ABBR[$REWARD]}_s${SEED}"
                 if [ -z "$DRY_RUN" ]; then
-                    JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" "$FOLD" | awk '{print $NF}')
-                    echo "Sepsis-terminal $ALGO seed$SEED fold$FOLD ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
-                else
-                    echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED $FOLD"
-                fi
-                count=$((count + 1))
-            done
-        done
-    done
-
-    # ── Sepsis (mixed), all folds ─────────────────────────────────────────────
-    echo "Submitting Sepsis (mixed reward) jobs..."
-    for ALGO in "${ALGOS[@]}"; do
-        for SEED in "${SEEDS[@]}"; do
-            for FOLD in $FOLDS; do
-                JOB_NAME="${ALGO_ABBR[$ALGO]}_sm_s${SEED}_f${FOLD}"
-                if [ -z "$DRY_RUN" ]; then
-                    export SLURM_ARGS="--reward_mode mixed"
-                    JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" "$FOLD" | awk '{print $NF}')
-                    echo "Sepsis-mixed $ALGO seed$SEED fold$FOLD ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
+                    export SLURM_ARGS="--mode final --reward_mode $REWARD --hp_json $HP_JSON"
+                    JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" sepsis "$SEED" | awk '{print $NF}')
+                    echo "Sepsis-$REWARD $ALGO seed$SEED ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
                     unset SLURM_ARGS
                 else
-                    echo "[DRY] SLURM_ARGS='--reward_mode mixed' sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED $FOLD"
+                    echo "[DRY] SLURM_ARGS='--mode final --reward_mode $REWARD --hp_json $HP_JSON' sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO sepsis $SEED"
                 fi
                 count=$((count + 1))
             done

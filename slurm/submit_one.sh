@@ -4,22 +4,23 @@
 #  script body runs — mkdir -p logs inside the job script is too late.)
 #
 # Usage:
-#   slurm/submit_one.sh ALGO DATASET SEED [FOLD] [-- extra python args]
+#   slurm/submit_one.sh ALGO DATASET SEED [-- extra python args]
 #
 # Examples:
-#   slurm/submit_one.sh discrete_tacr sepsis 0 0 -- --reward_mode mixed
+#   slurm/submit_one.sh discrete_tacr sepsis 0 -- --mode tune --reward_mode mixed
+#   slurm/submit_one.sh discrete_tacr sepsis 0 -- --mode final --reward_mode terminal --hp_json tuned_configs.json
 #   slurm/submit_one.sh discrete_bc cartpole 0
+#   NAME_SUFFIX=tuneT slurm/submit_one.sh ...   # append a tag to the job name
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$REPO_DIR/logs"
 
-ALGO="${1:?Usage: submit_one.sh ALGO DATASET SEED [FOLD] [-- extra python args]}"
+ALGO="${1:?Usage: submit_one.sh ALGO DATASET SEED [-- extra python args]}"
 DATASET="${2:?}"
 SEED="${3:?}"
-FOLD="${4:-0}"
-shift 4 2>/dev/null || shift $#
+shift 3
 
 # Anything after '--' is forwarded to the python script via SLURM_ARGS
 if [ "${1:-}" = "--" ]; then
@@ -33,8 +34,7 @@ declare -A DATASET_ABBR=([cartpole]=cp [pong_minari]=pg [pong]=pg [sepsis]=se)
 ALGO_SHORT="${ALGO_ABBR[$ALGO]:-$ALGO}"
 DATASET_SHORT="${DATASET_ABBR[$DATASET]:-$DATASET}"
 
-JOB_NAME="${ALGO_SHORT}_${DATASET_SHORT}_s${SEED}"
-[ "$DATASET" = "sepsis" ] && JOB_NAME="${JOB_NAME}_f${FOLD}"
+JOB_NAME="${ALGO_SHORT}_${DATASET_SHORT}_s${SEED}${NAME_SUFFIX:+_$NAME_SUFFIX}"
 
 # Partition/QOS override: the template defaults to A100, but that partition is
 # often fully allocated (long queue). Set PARTITION/QOS to target A40 instead,
@@ -47,6 +47,6 @@ SBATCH_OVERRIDE=()
 # cd into REPO_DIR before sbatch: SLURM_SUBMIT_DIR (used by train_template.sh
 # to locate itself, since ${BASH_SOURCE[0]} breaks under SLURM's spool copy)
 # is set to the cwd at submit time, not this script's own location.
-JOB_ID=$(cd "$REPO_DIR" && sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$REPO_DIR/slurm/train_template.sh" "$ALGO" "$DATASET" "$SEED" "$FOLD" | awk '{print $NF}')
+JOB_ID=$(cd "$REPO_DIR" && sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$REPO_DIR/slurm/train_template.sh" "$ALGO" "$DATASET" "$SEED" | awk '{print $NF}')
 
 echo "Submitted $JOB_NAME: $JOB_ID${PARTITION:+  (partition=$PARTITION)}"

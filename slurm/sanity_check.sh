@@ -134,17 +134,25 @@ else
         fi
 
         if _want sepsis; then
+            # smoke both modes on terminal (tune=dev/val, final=dev/locked-test),
+            # and final on mixed — exercises the 3-way split + both eval paths.
             echo ""
-            echo "--- smoke: $ALGO sepsis (terminal) ---"
+            echo "--- smoke: $ALGO sepsis (tune, terminal) ---"
             "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
-                --algo "$ALGO" --seed 0 --fold 0 --device "$SMOKE_DEVICE" --reward_mode terminal --smoke \
-                && echo "OK: $ALGO sepsis terminal" || { echo "FAIL: $ALGO sepsis terminal" >&2; SMOKE_FAILED=1; }
+                --algo "$ALGO" --seed 0 --mode tune --device "$SMOKE_DEVICE" --reward_mode terminal --smoke \
+                && echo "OK: $ALGO sepsis tune terminal" || { echo "FAIL: $ALGO sepsis tune terminal" >&2; SMOKE_FAILED=1; }
 
             echo ""
-            echo "--- smoke: $ALGO sepsis (mixed) ---"
+            echo "--- smoke: $ALGO sepsis (final, terminal) ---"
             "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
-                --algo "$ALGO" --seed 0 --fold 0 --device "$SMOKE_DEVICE" --reward_mode mixed --smoke \
-                && echo "OK: $ALGO sepsis mixed" || { echo "FAIL: $ALGO sepsis mixed" >&2; SMOKE_FAILED=1; }
+                --algo "$ALGO" --seed 0 --mode final --device "$SMOKE_DEVICE" --reward_mode terminal --smoke \
+                && echo "OK: $ALGO sepsis final terminal" || { echo "FAIL: $ALGO sepsis final terminal" >&2; SMOKE_FAILED=1; }
+
+            echo ""
+            echo "--- smoke: $ALGO sepsis (final, mixed) ---"
+            "$PYTHON" "$REPO_DIR/training/train_sepsis.py" \
+                --algo "$ALGO" --seed 0 --mode final --device "$SMOKE_DEVICE" --reward_mode mixed --smoke \
+                && echo "OK: $ALGO sepsis final mixed" || { echo "FAIL: $ALGO sepsis final mixed" >&2; SMOKE_FAILED=1; }
         fi
     done
 

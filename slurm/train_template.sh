@@ -6,18 +6,18 @@
 #SBATCH --output=logs/%x_seed%A_%j.out
 #SBATCH --error=logs/%x_seed%A_%j.err
 
-# Positional args (passed via `sbatch train_template.sh ALGO DATASET SEED [FOLD]`):
+# Positional args (passed via `sbatch train_template.sh ALGO DATASET SEED`):
 #   $1 = ALGO      (discrete_bc, discrete_cql, discrete_dt, discrete_tacr)
-#   $2 = DATASET   (cartpole, pong, sepsis)
+#   $2 = DATASET   (cartpole, pong_minari, sepsis)
 #   $3 = SEED      (0, 1, 2, ...)
-#   $4 = FOLD      (0-4, sepsis only, default 0)
+# Extra per-script args (sepsis --mode/--reward_mode/--hp_json, etc.) are passed
+# through the SLURM_ARGS env var by the submit scripts.
 ALGO="$1"
 DATASET="$2"
 SEED="$3"
-FOLD="${4:-0}"
 
 if [ -z "$ALGO" ] || [ -z "$DATASET" ] || [ -z "$SEED" ]; then
-    echo "ERROR: usage: sbatch train_template.sh ALGO DATASET SEED [FOLD]" >&2
+    echo "ERROR: usage: sbatch train_template.sh ALGO DATASET SEED  (extra args via SLURM_ARGS)" >&2
     exit 1
 fi
 
@@ -83,7 +83,7 @@ case "$DATASET" in
         ;;
     sepsis)
         SCRIPT="$REPO_DIR/training/train_sepsis.py"
-        EXTRA_ARGS="--fold $FOLD"
+        EXTRA_ARGS=""   # sepsis --mode/--reward_mode/--hp_json come via SLURM_ARGS
         ;;
     *)
         echo "ERROR: unknown dataset $DATASET" >&2
