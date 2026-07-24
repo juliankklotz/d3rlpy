@@ -9,6 +9,8 @@ import argparse
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for atari_preprocess
+
 import d3rlpy
 import d3rlpy.preprocessing
 import d3rlpy.models
@@ -167,10 +169,27 @@ def load_dataset(
                 "Or set --dataset pong_minari to use raw minari frames (suboptimal)."
             )
     if dataset_name == "pong_minari":
-        # Plain minari load, matching the proven exp08 atari_pong.ipynb runs.
-        # NO extra frame stacking: the earlier FrameStack(4) variant was never
-        # actually run to completion and diverged from the working notebook.
-        return d3rlpy.datasets.get_minari("atari/pong/expert-v0")
+        # Minari pong, downsampled to the standard offline-Atari format.
+        #
+        # Raw minari frames are [3,210,160] RGB, which measured >0.24 s/step on an
+        # A40 (~33h for 500k steps) — too slow for a 12h job, and no exp08 run ever
+        # completed at that resolution. So both dataset AND env are converted to the
+        # standard [4,84,84] grayscale stacked format used by the Decision
+        # Transformer paper (and described in this thesis):
+        #   dataset: atari_preprocess.preprocess_atari_buffer (gray + 84x84 resize,
+        #            FrameStack picker/slicer stacks 4 at sample time)
+        #   env:     d3rlpy.envs.Atari(..., num_stack=4, is_eval=True) — same
+        #            grayscale/resize/stack, is_eval keeps the true game score
+        #            (no reward clipping / terminal-on-life-loss).
+        # d4rl-atari (the usual source of [4,84,84]) is NOT used: its atari-py
+        # dependency fails to build without cmake on this cluster.
+        from atari_preprocess import preprocess_atari_buffer
+        from d3rlpy.envs import Atari
+
+        raw_dataset, raw_env = d3rlpy.datasets.get_minari("atari/pong/expert-v0")
+        dataset = preprocess_atari_buffer(raw_dataset, size=84, num_stack=4)
+        env = Atari(raw_env, num_stack=4, is_eval=True)
+        return dataset, env
     raise ValueError(f"Unknown dataset: {dataset_name}. Use cartpole, pong, or pong_minari.")
 
 
