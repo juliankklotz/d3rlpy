@@ -47,5 +47,4 @@ dependencies:
       - typing-extensions>=4.8.0
       - colorama>=0.4.4
       - matplotlib>=3.7.0      # convergence / results plotting (not a training dep)
-      - opencv-python-headless # required by d3rlpy.envs.AtariPreprocessing (Pong eval env)
       # NOTE: d3rlpy itself installed separately (pip install -e . --no-deps).
