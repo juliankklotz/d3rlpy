@@ -20,7 +20,32 @@ from d3rlpy.logging import UnifiedFileAdapterFactory
 # ── hyperparameters ────────────────────────────────────────────────────────────
 # One set per (algo, dataset). Derived from exp08 for TACR; literature for others.
 HPARAMS = {
+    # CartPole under two data regimes. Same env/config; only the behaviour policy
+    # that generated the offline data differs:
+    #   cartpole        -> 'replay' dataset: mixed-quality (3030 eps, 99732 transitions,
+    #                      mean return 33, max 199)
+    #   cartpole_random -> 'random' dataset: low-quality  (9023 eps, 99998 transitions,
+    #                      mean return 11, max 120)
+    # The contrast probes Bhargava et al.'s finding that return-conditioned sequence
+    # models are comparatively robust when the offline data is low-quality.
     "cartpole": {
+        "target_return": 200,
+        "n_steps": 100_000,
+        "n_steps_per_epoch": 1_000,
+        "discrete_bc": dict(batch_size=64, learning_rate=1e-3),
+        "discrete_cql": dict(batch_size=64),
+        "discrete_dt": dict(
+            batch_size=64, context_size=20, num_heads=1, num_layers=3,
+            max_timestep=1_000,
+        ),
+        "discrete_tacr": dict(
+            batch_size=64, context_size=20, num_heads=1, num_layers=3,
+            actor_learning_rate=1e-4, max_timestep=1_000,
+            position_encoding_type=d3rlpy.PositionEncodingType.SIMPLE,
+            compile_graph=False,
+        ),
+    },
+    "cartpole_random": {
         "target_return": 200,
         "n_steps": 100_000,
         "n_steps_per_epoch": 1_000,
@@ -153,7 +178,11 @@ def load_dataset(
     dataset_name: str,
 ) -> tuple[d3rlpy.dataset.ReplayBuffer, object]:
     if dataset_name == "cartpole":
-        return d3rlpy.datasets.get_cartpole()
+        # 'replay' = mixed-quality behaviour policy (d3rlpy default)
+        return d3rlpy.datasets.get_cartpole(dataset_type="replay")
+    if dataset_name == "cartpole_random":
+        # 'random' = low-quality behaviour policy; same env, weaker data
+        return d3rlpy.datasets.get_cartpole(dataset_type="random")
     if dataset_name == "pong":
         # Standard offline Atari: [4, 84, 84] grayscale stacked frames.
         # Requires: pip install "gym[atari,accept-rom-license]" autorom && AutoROM --accept-license
@@ -193,7 +222,7 @@ def load_dataset(
         dataset = preprocess_atari_buffer(raw_dataset, size=84, num_stack=4)
         env = make_atari_eval_env(raw_env, size=84, num_stack=4)
         return dataset, env
-    raise ValueError(f"Unknown dataset: {dataset_name}. Use cartpole, pong, or pong_minari.")
+    raise ValueError(f"Unknown dataset: {dataset_name}. Use cartpole, cartpole_random, pong, or pong_minari.")
 
 
 def main() -> None:
@@ -201,7 +230,7 @@ def main() -> None:
     parser.add_argument("--algo", required=True,
                         choices=["discrete_bc", "discrete_cql", "discrete_dt", "discrete_tacr"])
     parser.add_argument("--dataset", required=True,
-                        choices=["cartpole", "pong", "pong_minari"])
+                        choices=["cartpole", "cartpole_random", "pong", "pong_minari"])
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--n_steps", type=int, default=None,

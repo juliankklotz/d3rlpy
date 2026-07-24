@@ -56,33 +56,29 @@ declare -A ALGO_ABBR=(
 
 count=0
 
-# ── CartPole ──────────────────────────────────────────────────────────────────
-echo "Submitting CartPole jobs..."
-for ALGO in "${ALGOS[@]}"; do
-    for SEED in "${SEEDS[@]}"; do
-        JOB_NAME="${ALGO_ABBR[$ALGO]}_cp_s${SEED}"
-        if [ -z "$DRY_RUN" ]; then
-            JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" cartpole "$SEED" | awk '{print $NF}')
-            echo "CartPole $ALGO seed$SEED ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
-        else
-            echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO cartpole $SEED"
-        fi
-        count=$((count + 1))
-    done
-done
+# ── Benchmarks (online-rollout eval) ──────────────────────────────────────────
+# CartPole under two data regimes (replay = mixed-quality, random = low-quality).
+# Pong is EXCLUDED by default: the Minari Atari datasets hold only 10 episodes per
+# game (~5-23k transitions vs ~500k in the DT paper), and the d4rl-atari source
+# (DQN Replay Dataset) is no longer publicly downloadable — its GCS bucket returns
+# 401 for anonymous callers. Set BENCHMARKS to override, e.g.
+#   BENCHMARKS="cartpole cartpole_random pong_minari" bash slurm/submit_all_jobs.sh
+BENCHMARKS="${BENCHMARKS:-cartpole cartpole_random}"
+declare -A DS_ABBR=([cartpole]=cp [cartpole_random]=cpr [pong_minari]=pg [pong]=pg)
 
-# ── Pong (minari) ─────────────────────────────────────────────────────────────
-echo "Submitting Pong (minari) jobs..."
-for ALGO in "${ALGOS[@]}"; do
-    for SEED in "${SEEDS[@]}"; do
-        JOB_NAME="${ALGO_ABBR[$ALGO]}_pg_s${SEED}"
-        if [ -z "$DRY_RUN" ]; then
-            JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" pong_minari "$SEED" | awk '{print $NF}')
-            echo "Pong $ALGO seed$SEED ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
-        else
-            echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO pong_minari $SEED"
-        fi
-        count=$((count + 1))
+for DATASET in $BENCHMARKS; do
+    echo "Submitting $DATASET jobs..."
+    for ALGO in "${ALGOS[@]}"; do
+        for SEED in "${SEEDS[@]}"; do
+            JOB_NAME="${ALGO_ABBR[$ALGO]}_${DS_ABBR[$DATASET]:-$DATASET}_s${SEED}"
+            if [ -z "$DRY_RUN" ]; then
+                JOB_ID=$(sbatch --job-name="$JOB_NAME" "${SBATCH_OVERRIDE[@]}" "$TEMPLATE" "$ALGO" "$DATASET" "$SEED" | awk '{print $NF}')
+                echo "$DATASET $ALGO seed$SEED ($JOB_NAME): $JOB_ID" | tee -a "$LOG_FILE"
+            else
+                echo "[DRY] sbatch --job-name=$JOB_NAME $TEMPLATE $ALGO $DATASET $SEED"
+            fi
+            count=$((count + 1))
+        done
     done
 done
 

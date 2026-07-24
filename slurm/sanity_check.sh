@@ -95,7 +95,7 @@ import sys
 sys.path.insert(0, "$REPO_DIR")
 import d3rlpy
 from d3rlpy.ope import DiscreteFQE, DiscreteFQETrajectory, FQEConfig
-from d3rlpy.sepsis_loader import get_sepsis_fold
+from d3rlpy.sepsis_loader import get_sepsis_splits, get_sepsis_dev_buffer
 print("OK: d3rlpy + FQE + sepsis_loader imports succeed")
 PYEOF
 
@@ -126,11 +126,13 @@ else
 
     for ALGO in $ALGOS; do
         if _want cartpole; then
-            echo ""
-            echo "--- smoke: $ALGO cartpole ---"
-            "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
-                --algo "$ALGO" --dataset cartpole --seed 0 --device "$SMOKE_DEVICE" --smoke \
-                && echo "OK: $ALGO cartpole" || { echo "FAIL: $ALGO cartpole" >&2; SMOKE_FAILED=1; }
+            for DS in cartpole cartpole_random; do
+                echo ""
+                echo "--- smoke: $ALGO $DS ---"
+                "$PYTHON" "$REPO_DIR/training/train_benchmarks.py" \
+                    --algo "$ALGO" --dataset "$DS" --seed 0 --device "$SMOKE_DEVICE" --smoke \
+                    && echo "OK: $ALGO $DS" || { echo "FAIL: $ALGO $DS" >&2; SMOKE_FAILED=1; }
+            done
         fi
 
         if _want sepsis; then
