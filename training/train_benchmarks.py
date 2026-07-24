@@ -37,9 +37,10 @@ HPARAMS = {
     },
     "pong": {
         # dataset: get_atari("pong-expert-v0", num_stack=4) → obs [4, 84, 84]
+        # (standard downsampled Atari format; unused — pong_minari is the one wired up)
         "target_return": 20,
-        "n_steps": 500_000,
-        "n_steps_per_epoch": 5_000,
+        "n_steps": 100_000,
+        "n_steps_per_epoch": 1_000,
         "discrete_bc": dict(batch_size=64, learning_rate=1e-3),
         "discrete_cql": dict(batch_size=64),
         "discrete_dt": dict(
@@ -57,9 +58,12 @@ HPARAMS = {
         # minari atari/pong/expert-v0, loaded plainly (NO extra frame stacking).
         # Config matches the proven exp08 atari_pong.ipynb runs: PixelEncoder
         # feature_size=64, context_size=50, heads=4, layers=3, max_timestep=2000.
+        # n_steps=100k matches the exp08 runs that actually completed. Raw
+        # [3,210,160] frames are ~0.24 s/step on A40 (~7h/run at 100k); 500k
+        # would be ~33h and exceed the 12h QoS limit.
         "target_return": 20,
-        "n_steps": 500_000,
-        "n_steps_per_epoch": 5_000,
+        "n_steps": 100_000,
+        "n_steps_per_epoch": 1_000,
         "discrete_bc": dict(batch_size=128, learning_rate=1e-3),
         "discrete_cql": dict(batch_size=128),
         "discrete_dt": dict(
